@@ -18,6 +18,10 @@ function fail(path: string, message: string): never {
 /** Solicitar un nuevo fondo por rendir */
 export async function requestFund(f: FormData) {
   const profile = await requireRole();
+  if (profile.role === "general_manager") {
+    fail("/fondos", "El rol de Gerencia General no está habilitado para solicitar fondos personales.");
+  }
+
   const company_id = str(f, "company_id");
   const purpose = str(f, "purpose");
   const requested_amount = money(f, "requested_amount");

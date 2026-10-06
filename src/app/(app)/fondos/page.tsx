@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { formatClp, formatDate, FUND_STATUS_CONFIG, REPORT_STATUS_CONFIG } from "@/lib/format";
 import { NewFundModal } from "./new-fund-modal";
 import { cancelFund } from "./actions";
-import { Wallet, AlertCircle, CheckCircle2, FileText, ArrowUpRight, Ban, HandCoins, Plus, Building2, User, Users } from "lucide-react";
+import { Wallet, AlertCircle, CheckCircle2, FileText, ArrowUpRight, Ban, HandCoins, Plus, Building2, User, Users, ClipboardCheck } from "lucide-react";
 import Link from "next/link";
 import { getSignedFileUrl } from "@/lib/supabase/storage";
 import { getUserAuthorizedCompanies } from "@/lib/companies";
@@ -17,6 +17,7 @@ export default async function FondosPage({
   const { error, success, tab, view } = await searchParams;
   const currentTab = tab || "fondos";
 
+  const isGeneralManager = profile.role === "general_manager";
   const isManagement = profile.role === "admin" || profile.role === "general_manager" || profile.role === "manager";
   const currentView = isManagement ? (view || "empresa") : "personal";
 
@@ -105,14 +106,27 @@ export default async function FondosPage({
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Link
-            href="/gastos/nuevo"
-            className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-surface px-3.5 py-2.5 text-xs font-bold text-foreground shadow-sm transition hover:border-primary hover:text-primary active:scale-95"
-          >
-            <Plus size={16} />
-            Rendir Gasto / Reembolso
-          </Link>
-          <NewFundModal companies={companies} />
+          {!isGeneralManager && (
+            <>
+              <Link
+                href="/gastos/nuevo"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-surface px-3.5 py-2.5 text-xs font-bold text-foreground shadow-sm transition hover:border-primary hover:text-primary active:scale-95"
+              >
+                <Plus size={16} />
+                Rendir Gasto / Reembolso
+              </Link>
+              <NewFundModal companies={companies} />
+            </>
+          )}
+          {isGeneralManager && (
+            <Link
+              href="/aprobaciones"
+              className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-brand-600 active:scale-95"
+            >
+              <ClipboardCheck size={16} />
+              Bandeja de Aprobaciones
+            </Link>
+          )}
         </div>
       </div>
 
