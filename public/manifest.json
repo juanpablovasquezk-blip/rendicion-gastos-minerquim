@@ -1,0 +1,57 @@
+{
+  "name": "Rendición de Gastos — Grupo Minerquim",
+  "short_name": "Minerquim Gastos",
+  "description": "Plataforma de rendición de gastos, fondos por rendir y reembolsos del Grupo Minerquim con soporte offline en terreno y OCR con IA.",
+  "id": "/",
+  "start_url": "/dashboard",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "lang": "es-CL",
+  "background_color": "#F8F9FA",
+  "theme_color": "#ED6A1C",
+  "categories": ["business", "finance", "productivity"],
+  "icons": [
+    {
+      "src": "/icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Nuevo Gasto / Boleta",
+      "short_name": "Nuevo Gasto",
+      "description": "Tomar foto y registrar nuevo gasto o boleta",
+      "url": "/gastos/nuevo",
+      "icons": [{ "src": "/icons/icon-192x192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Mis Fondos y Saldos",
+      "short_name": "Fondos",
+      "description": "Consultar saldo disponible y solicitar fondos",
+      "url": "/fondos",
+      "icons": [{ "src": "/icons/icon-192x192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Bandeja de Aprobaciones",
+      "short_name": "Aprobaciones",
+      "description": "Revisar y autorizar gastos y fondos",
+      "url": "/aprobaciones",
+      "icons": [{ "src": "/icons/icon-192x192.png", "sizes": "192x192" }]
+    }
+  ]
+}

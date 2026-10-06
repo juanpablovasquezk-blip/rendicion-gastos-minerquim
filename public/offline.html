@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="es-CL">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Modo Sin Conexión | Rendición de Gastos Minerquim</title>
+  <style>
+    :root {
+      --primary: #ED6A1C;
+      --bg: #F8F9FA;
+      --surface: #FFFFFF;
+      --text: #1A1A1A;
+      --muted: #6C6C6C;
+      --border: #E5E7EB;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #121212;
+        --surface: #1E1E1E;
+        --text: #F3F4F6;
+        --muted: #9CA3AF;
+        --border: #2D2D2D;
+      }
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 24px;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      padding: 36px 28px;
+      max-width: 440px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05);
+    }
+    .icon-wrapper {
+      width: 72px;
+      height: 72px;
+      background: rgba(237, 106, 28, 0.1);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 20px;
+      color: var(--primary);
+    }
+    h1 {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    p {
+      font-size: 14px;
+      color: var(--muted);
+      line-height: 1.5;
+      margin-bottom: 24px;
+    }
+    .badge {
+      display: inline-block;
+      background: rgba(237, 106, 28, 0.15);
+      color: var(--primary);
+      padding: 6px 14px;
+      border-radius: 9999px;
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 20px;
+    }
+    .btn {
+      display: block;
+      width: 100%;
+      padding: 14px;
+      background: var(--primary);
+      color: white;
+      border: none;
+      border-radius: 14px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      transition: opacity 0.2s;
+    }
+    .btn:hover {
+      opacity: 0.9;
+    }
+    .btn-secondary {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon-wrapper">
+      <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="1" y1="1" x2="23" y2="23"></line>
+        <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"></path>
+        <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"></path>
+        <path d="M10.71 5.05A16 16 0 0 1 22.58 9"></path>
+        <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"></path>
+        <path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path>
+        <line x1="12" y1="20" x2="12.01" y2="20"></line>
+      </svg>
+    </div>
+    <span class="badge">Modo Terreno Offline</span>
+    <h1>Estás sin conexión a internet</h1>
+    <p>
+      No te preocupes: puedes continuar capturando boletas y gastos en terreno. La aplicación guardará tus registros localmente y los sincronizará automáticamente cuando recuperes señal.
+    </p>
+    <a href="/gastos/nuevo" class="btn">📸 Registrar Gasto en Terreno</a>
+    <button onclick="window.location.reload()" class="btn btn-secondary">Reintentar Conexión</button>
+  </div>
+</body>
+</html>
