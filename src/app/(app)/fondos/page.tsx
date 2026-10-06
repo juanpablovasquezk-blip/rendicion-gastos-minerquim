@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { formatClp, formatDate, FUND_STATUS_CONFIG, REPORT_STATUS_CONFIG } from "@/lib/format";
 import { NewFundModal } from "./new-fund-modal";
 import { cancelFund } from "./actions";
-import { Wallet, AlertCircle, CheckCircle2, FileText, ArrowUpRight, Ban, HandCoins, Plus, Clock } from "lucide-react";
+import { Wallet, AlertCircle, CheckCircle2, FileText, ArrowUpRight, Ban, HandCoins, Plus, Building2, User, Users } from "lucide-react";
 import Link from "next/link";
 import { getSignedFileUrl } from "@/lib/supabase/storage";
 import { getUserAuthorizedCompanies } from "@/lib/companies";
@@ -11,47 +11,66 @@ import { getUserAuthorizedCompanies } from "@/lib/companies";
 export default async function FondosPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; success?: string; tab?: string }>;
+  searchParams: Promise<{ error?: string; success?: string; tab?: string; view?: string }>;
 }) {
   const profile = await requireRole();
-  const { error, success, tab } = await searchParams;
+  const { error, success, tab, view } = await searchParams;
   const currentTab = tab || "fondos";
+
+  const isManagement = profile.role === "admin" || profile.role === "general_manager" || profile.role === "manager";
+  const currentView = isManagement ? (view || "empresa") : "personal";
 
   const sb = await createClient();
 
   // 1. Obtener empresas autorizadas para el usuario
   const companies = await getUserAuthorizedCompanies(sb, profile.id, profile.role);
 
-  // 2. Obtener fondos del usuario
-  const { data: funds } = await sb
+  // 2. Obtener fondos (Global empresa o Personal según vista)
+  let fundsQuery = sb
     .from("cash_advances")
-    .select("*, companies(name)")
-    .eq("user_id", profile.id)
+    .select(`
+      *,
+      companies(name),
+      departments(name),
+      user_profile:user_id(id, full_name, email, phone)
+    `)
     .order("created_at", { ascending: false });
 
-  // 3. Obtener reembolsos de dinero personal del usuario
-  const { data: reimbursements } = await sb
+  if (currentView === "personal") {
+    fundsQuery = fundsQuery.eq("user_id", profile.id);
+  }
+
+  const { data: funds } = await fundsQuery;
+
+  // 3. Obtener reembolsos de dinero personal (Global empresa o Personal según vista)
+  let reimbursementsQuery = sb
     .from("expense_reports")
     .select(`
       *,
+      user_profile:user_id(id, full_name, email, phone),
       expenses(
         id, date, supplier_name, supplier_rut, invoice_number,
         total_amount, tax_amount, has_receipt, description, status,
         companies(name), departments(name), categories(name), receipt_types(name)
       )
     `)
-    .eq("user_id", profile.id)
     .eq("report_type", "reimbursement")
     .order("created_at", { ascending: false });
 
-  // Calcular métricas de los fondos del usuario
+  if (currentView === "personal") {
+    reimbursementsQuery = reimbursementsQuery.eq("user_id", profile.id);
+  }
+
+  const { data: reimbursements } = await reimbursementsQuery;
+
+  // Calcular métricas de los fondos
   const activeFunds = funds?.filter((f) => f.status === "active") ?? [];
   const requestedFunds = funds?.filter((f) => f.status === "requested" || f.status === "approved") ?? [];
 
   const totalAvailableBalance = activeFunds.reduce((acc, f) => acc + Number(f.current_balance || 0), 0);
   const totalPendingAmount = requestedFunds.reduce((acc, f) => acc + Number(f.requested_amount || 0), 0);
 
-  // Calcular reembolsos a favor del colaborador
+  // Calcular reembolsos a favor de los colaboradores
   const pendingReimbursements = reimbursements?.filter((r) => r.status === "submitted" || r.status === "partially_approved") ?? [];
   const approvedReimbursements = reimbursements?.filter((r) => r.status === "approved") ?? [];
   const totalReimbursementOwed = [...pendingReimbursements, ...approvedReimbursements].reduce(
@@ -76,9 +95,13 @@ export default async function FondosPage({
       {/* Encabezado y botón de acción */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Fondos y Reembolsos</h1>
+          <h1 className="text-2xl font-bold">
+            {currentView === "empresa" ? "Supervisión de Fondos Corporativos" : "Mis Fondos y Reembolsos"}
+          </h1>
           <p className="text-sm text-muted-foreground">
-            Consulta tus saldos corporativos disponibles y el dinero a tu favor por reembolsos.
+            {currentView === "empresa"
+              ? "Vista gerencial de todos los fondos entregados a funcionarios, saldos pendientes y reembolsos."
+              : "Consulta tus saldos corporativos disponibles y el dinero a tu favor por reembolsos."}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -92,6 +115,34 @@ export default async function FondosPage({
           <NewFundModal companies={companies} />
         </div>
       </div>
+
+      {/* Selector de Vista para Gerencia (Empresa vs Personal) */}
+      {isManagement && (
+        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-border bg-surface p-1.5 shadow-sm max-w-md">
+          <Link
+            href={`/fondos?view=empresa&tab=${currentTab}`}
+            className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-2 text-xs font-bold transition ${
+              currentView === "empresa"
+                ? "bg-primary text-white shadow"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+            }`}
+          >
+            <Building2 size={15} />
+            Todos los Fondos Empresa
+          </Link>
+          <Link
+            href={`/fondos?view=personal&tab=${currentTab}`}
+            className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-2 text-xs font-bold transition ${
+              currentView === "personal"
+                ? "bg-primary text-white shadow"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+            }`}
+          >
+            <User size={15} />
+            Mis Fondos Personales
+          </Link>
+        </div>
+      )}
 
       {/* Alertas */}
       {error && (
@@ -115,11 +166,11 @@ export default async function FondosPage({
 
       {/* Resumen numérico: 3 tarjetas balanceadas */}
       <div className="grid gap-4 sm:grid-cols-3">
-        {/* 1. Saldo de Fondos Activos (Empresa -> Colaborador) */}
+        {/* 1. Saldo de Fondos Activos (Empresa -> Colaboradores) */}
         <div className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              Saldo Fondos Activos
+              {currentView === "empresa" ? "Fondos en Manos de Funcionarios" : "Saldo Fondos Activos"}
             </span>
             <span className="rounded-xl bg-emerald-50 p-2.5 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400">
               <Wallet size={20} />
@@ -129,15 +180,15 @@ export default async function FondosPage({
             {formatClp(totalAvailableBalance)}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            {activeFunds.length} {activeFunds.length === 1 ? "fondo listo para rendir" : "fondos listos para rendir"}
+            {activeFunds.length} {activeFunds.length === 1 ? "fondo activo en operación" : "fondos activos en operación"}
           </p>
         </div>
 
-        {/* 2. Reembolsos a Favor del Trabajador (Empresa DEBE al Colaborador) */}
+        {/* 2. Reembolsos a Favor de los Trabajadores */}
         <div className="rounded-2xl border border-blue-200 bg-blue-50/40 p-5 shadow-sm dark:border-blue-900/50 dark:bg-blue-950/20">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-blue-800 dark:text-blue-300 uppercase tracking-wider">
-              Reembolsos a tu Favor
+              {currentView === "empresa" ? "Total Reembolsos por Pagar" : "Reembolsos a tu Favor"}
             </span>
             <span className="rounded-xl bg-blue-100 p-2.5 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
               <HandCoins size={20} />
@@ -147,7 +198,9 @@ export default async function FondosPage({
             {formatClp(totalReimbursementOwed)}
           </p>
           <p className="mt-1 text-xs text-blue-700 dark:text-blue-300 font-medium">
-            Dinero personal por devolverte ({pendingReimbursements.length + approvedReimbursements.length} en curso)
+            {currentView === "empresa"
+              ? `Dinero personal adeudado a colaboradores (${pendingReimbursements.length + approvedReimbursements.length} en trámite)`
+              : `Dinero personal por devolverte (${pendingReimbursements.length + approvedReimbursements.length} en curso)`}
           </p>
         </div>
 
@@ -173,7 +226,7 @@ export default async function FondosPage({
       {/* Pestañas de navegación de listados */}
       <div className="flex items-center gap-2 border-b border-border pb-2">
         <Link
-          href="/fondos?tab=fondos"
+          href={`/fondos?view=${currentView}&tab=fondos`}
           className={`flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-bold transition ${
             currentTab === "fondos"
               ? "bg-primary text-white shadow-sm"
@@ -184,7 +237,7 @@ export default async function FondosPage({
           Fondos por Rendir ({funds?.length ?? 0})
         </Link>
         <Link
-          href="/fondos?tab=reembolsos"
+          href={`/fondos?view=${currentView}&tab=reembolsos`}
           className={`flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-bold transition ${
             currentTab === "reembolsos"
               ? "bg-primary text-white shadow-sm"
@@ -192,7 +245,7 @@ export default async function FondosPage({
           }`}
         >
           <HandCoins size={16} />
-          Mis Reembolsos de Dinero Personal ({reimbursements?.length ?? 0})
+          Reembolsos de Dinero Personal ({reimbursements?.length ?? 0})
         </Link>
       </div>
 
@@ -200,16 +253,18 @@ export default async function FondosPage({
       {currentTab === "fondos" && (
         <div className="rounded-2xl border border-border bg-surface p-5 shadow-sm space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-base font-bold">Mis Solicitudes y Fondos ({funds?.length ?? 0})</h2>
+            <h2 className="text-base font-bold">
+              {currentView === "empresa" ? `Todos los Fondos de la Empresa (${funds?.length ?? 0})` : `Mis Solicitudes y Fondos (${funds?.length ?? 0})`}
+            </h2>
             <span className="text-xs text-muted-foreground">Dinero entregado por la empresa para operar</span>
           </div>
 
           {!funds || funds.length === 0 ? (
             <div className="py-12 text-center">
               <Wallet size={40} className="mx-auto text-muted-foreground/50" />
-              <p className="mt-3 font-semibold">No tienes fondos registrados</p>
+              <p className="mt-3 font-semibold">No hay fondos registrados en esta vista</p>
               <p className="text-sm text-muted-foreground">
-                Haz clic en &quot;Solicitar Fondo&quot; para pedir un anticipo para tus gastos operativos.
+                Haz clic en &quot;Solicitar Fondo&quot; para pedir un anticipo para gastos operativos.
               </p>
             </div>
           ) : (
@@ -221,14 +276,37 @@ export default async function FondosPage({
                   text: "text-gray-700",
                 };
                 const hasDepositReceipt = !!depositUrls[fund.id];
+                const spentAmount = Number(fund.initial_amount || 0) - Number(fund.current_balance || 0);
 
                 return (
                   <div key={fund.id} className="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between">
                     <div className="space-y-1.5">
+                      {/* En vista gerencial, mostrar funcionario dueño del fondo */}
+                      {currentView === "empresa" && (
+                        <div className="flex items-center gap-2">
+                          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-primary text-xs font-bold">
+                            {fund.user_profile?.full_name?.charAt(0) || "U"}
+                          </span>
+                          <span className="font-bold text-sm text-foreground">
+                            {fund.user_profile?.full_name || fund.user_profile?.email}
+                          </span>
+                          {fund.user_profile?.phone && (
+                            <span className="text-[11px] text-muted-foreground">
+                              · Tel: {fund.user_profile.phone}
+                            </span>
+                          )}
+                        </div>
+                      )}
+
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-semibold text-foreground">
+                        <span className="font-semibold text-xs text-primary">
                           {fund.companies?.name || "Empresa no especificada"}
                         </span>
+                        {fund.departments?.name && (
+                          <span className="text-xs text-muted-foreground">
+                            · {fund.departments.name}
+                          </span>
+                        )}
                         <span
                           className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${statusCfg.bg} ${statusCfg.text}`}
                         >
@@ -236,13 +314,18 @@ export default async function FondosPage({
                         </span>
                       </div>
 
-                      <p className="text-sm text-muted-foreground">
+                      <p className="text-sm text-foreground font-medium">
                         {fund.purpose}
                       </p>
 
                       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
                         <span>Solicitado: {formatDate(fund.created_at)}</span>
                         {fund.date_assigned && <span>Depositado: {formatDate(fund.date_assigned)}</span>}
+                        {fund.status === "active" && spentAmount > 0 && (
+                          <span className="text-amber-700 dark:text-amber-400 font-medium">
+                            Rendido hasta hoy: {formatClp(spentAmount)}
+                          </span>
+                        )}
                       </div>
 
                       {fund.rejection_reason && (
@@ -257,13 +340,13 @@ export default async function FondosPage({
                         {fund.status === "active" ? (
                           <>
                             <span className="block text-xs font-semibold uppercase text-emerald-600 dark:text-emerald-400">
-                              Saldo Disponible
+                              Saldo Restante por Rendir
                             </span>
                             <span className="text-lg font-bold text-foreground">
                               {formatClp(fund.current_balance)}
                             </span>
                             <span className="block text-[11px] text-muted-foreground">
-                              de {formatClp(fund.initial_amount)}
+                              de {formatClp(fund.initial_amount)} entregados
                             </span>
                           </>
                         ) : (
@@ -288,7 +371,7 @@ export default async function FondosPage({
                             className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground transition hover:border-primary hover:text-primary"
                           >
                             <FileText size={14} />
-                            Comprobante Depósito
+                            Comprobante Transferencia
                           </a>
                         )}
 
@@ -301,7 +384,7 @@ export default async function FondosPage({
                           </Link>
                         )}
 
-                        {fund.status === "requested" && (
+                        {fund.status === "requested" && fund.user_id === profile.id && (
                           <form action={cancelFund}>
                             <input type="hidden" name="id" value={fund.id} />
                             <button
@@ -329,9 +412,11 @@ export default async function FondosPage({
         <div className="rounded-2xl border border-border bg-surface p-5 shadow-sm space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-base font-bold">Mis Reembolsos de Dinero Personal ({reimbursements?.length ?? 0})</h2>
+              <h2 className="text-base font-bold">
+                {currentView === "empresa" ? `Reembolsos de la Empresa (${reimbursements?.length ?? 0})` : `Mis Reembolsos (${reimbursements?.length ?? 0})`}
+              </h2>
               <p className="text-xs text-muted-foreground">
-                Gastos pagados con tu dinero personal que la empresa te debe reembolsar.
+                Gastos pagados con dinero personal de colaboradores que la empresa debe reembolsar.
               </p>
             </div>
             <Link
@@ -346,9 +431,9 @@ export default async function FondosPage({
           {!reimbursements || reimbursements.length === 0 ? (
             <div className="py-12 text-center">
               <HandCoins size={40} className="mx-auto text-muted-foreground/50" />
-              <p className="mt-3 font-semibold">No tienes reembolsos registrados</p>
+              <p className="mt-3 font-semibold">No hay reembolsos registrados en esta vista</p>
               <p className="text-sm text-muted-foreground">
-                Cuando pagues un gasto con tu dinero personal, regístralo como &quot;Reembolso Posterior&quot; para solicitar la devolución.
+                Cuando un colaborador pague un gasto con su dinero personal, aparecerá aquí para su devolución.
               </p>
             </div>
           ) : (
@@ -364,6 +449,18 @@ export default async function FondosPage({
                 return (
                   <div key={rep.id} className="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between">
                     <div className="space-y-1.5">
+                      {/* En vista gerencial, mostrar funcionario dueño del reembolso */}
+                      {currentView === "empresa" && (
+                        <div className="flex items-center gap-2">
+                          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 text-blue-700 text-xs font-bold dark:bg-blue-950 dark:text-blue-300">
+                            {rep.user_profile?.full_name?.charAt(0) || "U"}
+                          </span>
+                          <span className="font-bold text-sm text-foreground">
+                            {rep.user_profile?.full_name || rep.user_profile?.email}
+                          </span>
+                        </div>
+                      )}
+
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-semibold text-foreground">{rep.title}</span>
                         <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${statusCfg.bg} ${statusCfg.text}`}>

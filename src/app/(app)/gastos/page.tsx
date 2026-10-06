@@ -2,25 +2,29 @@ import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { formatClp, formatDate, REPORT_STATUS_CONFIG } from "@/lib/format";
 import { deleteExpense, submitReport } from "./actions";
-import { Plus, Receipt, AlertCircle, CheckCircle2, FileText, Trash2, Send, Clock } from "lucide-react";
+import { Plus, Receipt, AlertCircle, CheckCircle2, FileText, Trash2, Send, Clock, Building2, User } from "lucide-react";
 import Link from "next/link";
 import { getSignedFileUrl } from "@/lib/supabase/storage";
 
 export default async function GastosPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; success?: string }>;
+  searchParams: Promise<{ error?: string; success?: string; view?: string }>;
 }) {
-  const profile = await requireRole("employee", "manager", "admin");
-  const { error, success } = await searchParams;
+  const profile = await requireRole();
+  const { error, success, view } = await searchParams;
+
+  const isManagement = profile.role === "admin" || profile.role === "general_manager" || profile.role === "manager";
+  const currentView = isManagement ? (view || "empresa") : "personal";
 
   const sb = await createClient();
 
-  // Obtener informes del usuario con sus gastos detallados
-  const { data: reports } = await sb
+  // Obtener informes con sus gastos detallados
+  let reportsQuery = sb
     .from("expense_reports")
     .select(`
       *,
+      user_profile:user_id(id, full_name, email),
       cash_advances(purpose, initial_amount, current_balance),
       expenses(
         id, date, supplier_name, supplier_rut, invoice_number,
@@ -29,8 +33,13 @@ export default async function GastosPage({
         companies(name), departments(name, code), categories(name), receipt_types(name)
       )
     `)
-    .eq("user_id", profile.id)
     .order("created_at", { ascending: false });
+
+  if (currentView === "personal") {
+    reportsQuery = reportsQuery.eq("user_id", profile.id);
+  }
+
+  const { data: reports } = await reportsQuery;
 
   // Obtener URLs firmadas de comprobantes
   const receiptUrls: Record<string, string | null> = {};
@@ -45,8 +54,9 @@ export default async function GastosPage({
     );
   }
 
-  const drafts = reports?.filter((r) => r.status === "draft" || r.status === "partially_approved") ?? [];
-  const inReview = reports?.filter((r) => r.status === "submitted") ?? [];
+  // Separar por estados
+  const drafts = reports?.filter((r) => (r.status === "draft" || r.status === "partially_approved") && r.user_id === profile.id) ?? [];
+  const inReview = reports?.filter((r) => r.status === "submitted" || r.status === "partially_approved") ?? [];
   const history = reports?.filter((r) => r.status === "approved" || r.status === "settled" || r.status === "rejected") ?? [];
 
   return (
@@ -54,9 +64,13 @@ export default async function GastosPage({
       {/* Encabezado y botón */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Mis Rendiciones y Gastos</h1>
+          <h1 className="text-2xl font-bold">
+            {currentView === "empresa" ? "Supervisión de Gastos y Rendiciones" : "Mis Rendiciones y Gastos"}
+          </h1>
           <p className="text-sm text-muted-foreground">
-            Registra tus gastos con boletas/facturas y envíalos a revisión para su aprobación.
+            {currentView === "empresa"
+              ? "Vista general de todas las rendiciones de gastos y comprobantes registrados por colaboradores."
+              : "Registra tus gastos con boletas/facturas y envíalos a revisión para su aprobación."}
           </p>
         </div>
         <Link
@@ -67,6 +81,34 @@ export default async function GastosPage({
           Registrar Gasto
         </Link>
       </div>
+
+      {/* Selector de Vista para Gerencia */}
+      {isManagement && (
+        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-border bg-surface p-1.5 shadow-sm max-w-md">
+          <Link
+            href="/gastos?view=empresa"
+            className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-2 text-xs font-bold transition ${
+              currentView === "empresa"
+                ? "bg-primary text-white shadow"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+            }`}
+          >
+            <Building2 size={15} />
+            Todos los Gastos Empresa
+          </Link>
+          <Link
+            href="/gastos?view=personal"
+            className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-2 text-xs font-bold transition ${
+              currentView === "personal"
+                ? "bg-primary text-white shadow"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+            }`}
+          >
+            <User size={15} />
+            Mis Gastos Personales
+          </Link>
+        </div>
+      )}
 
       {/* Alertas */}
       {error && (
@@ -94,11 +136,11 @@ export default async function GastosPage({
         </div>
       )}
 
-      {/* 1. SECCIÓN: INFORMES EN BORRADOR / PENDIENTES DE ENVÍO */}
+      {/* 1. SECCIÓN: INFORMES EN BORRADOR (Solo personales) */}
       <div className="space-y-4">
         <h2 className="text-base font-bold flex items-center gap-2">
           <Clock size={18} className="text-primary" />
-          Informes en Borrador (Pendientes de Envío)
+          Mis Informes en Borrador (Pendientes de Envío)
         </h2>
 
         {drafts.length === 0 ? (
@@ -182,23 +224,23 @@ export default async function GastosPage({
                             Glosa: {exp.description}
                           </p>
                         )}
-                        {exp.rejection_reason && (
-                          <p className="rounded-md bg-rose-50 p-1.5 text-xs text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">
-                            <strong>Observación:</strong> {exp.rejection_reason}
-                          </p>
-                        )}
                       </div>
 
-                      <div className="flex items-center justify-between sm:justify-end gap-3">
-                        <span className="text-sm font-bold">{formatClp(exp.total_amount)}</span>
+                      <div className="flex items-center gap-4 self-end sm:self-center">
+                        <div className="text-right">
+                          <span className="font-bold text-base">{formatClp(exp.total_amount)}</span>
+                          {exp.tax_amount > 0 && (
+                            <span className="block text-[11px] text-muted-foreground">IVA: {formatClp(exp.tax_amount)}</span>
+                          )}
+                        </div>
 
-                        {receiptUrls[exp.id] && (
+                        {exp.receipt_path && receiptUrls[exp.id] && (
                           <a
                             href={receiptUrls[exp.id]!}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="rounded-lg border border-border p-1.5 text-muted-foreground transition hover:border-primary hover:text-primary"
-                            title="Ver Comprobante"
+                            className="rounded-lg border border-border p-2 text-muted-foreground transition hover:border-primary hover:text-primary"
+                            title="Ver documento adjunto"
                           >
                             <FileText size={16} />
                           </a>
@@ -209,7 +251,7 @@ export default async function GastosPage({
                           <button
                             type="submit"
                             title="Eliminar gasto"
-                            className="rounded-lg p-1.5 text-muted-foreground transition hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/30"
+                            className="rounded-lg p-2 text-rose-500 transition hover:bg-rose-50 hover:text-rose-700 dark:hover:bg-rose-950/40"
                           >
                             <Trash2 size={16} />
                           </button>
@@ -218,15 +260,6 @@ export default async function GastosPage({
                     </div>
                   ))}
                 </div>
-
-                <div className="pt-2">
-                  <Link
-                    href={`/gastos/nuevo?report_id=${report.id}${report.fund_id ? `&fund_id=${report.fund_id}` : ""}`}
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline"
-                  >
-                    <Plus size={14} /> Agregar otro gasto a este informe
-                  </Link>
-                </div>
               </div>
             );
           })
@@ -234,61 +267,91 @@ export default async function GastosPage({
       </div>
 
       {/* 2. SECCIÓN: INFORMES EN REVISIÓN */}
-      {inReview.length > 0 && (
-        <div className="space-y-4 pt-4">
-          <h2 className="text-base font-bold flex items-center gap-2">
-            <Receipt size={18} className="text-amber-500" />
-            Informes Enviados en Revisión ({inReview.length})
-          </h2>
+      <div className="space-y-4">
+        <h2 className="text-base font-bold flex items-center gap-2">
+          <Receipt size={18} className="text-amber-600" />
+          {currentView === "empresa" ? `Rendiciones en Revisión de la Empresa (${inReview.length})` : `Mis Rendiciones en Revisión (${inReview.length})`}
+        </h2>
 
-          {inReview.map((report) => (
-            <div key={report.id} className="rounded-2xl border border-border bg-surface p-5 shadow-sm space-y-3 opacity-95">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="font-bold">{report.title}</h3>
-                  <p className="text-xs text-muted-foreground">
-                    Enviado el {formatDate(report.submitted_at)} · {report.expenses?.length || 0} ítems
-                  </p>
-                </div>
-                <div className="text-right">
-                  <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800 dark:bg-amber-950/50 dark:text-amber-300">
-                    En Revisión de Operaciones
-                  </span>
-                  <span className="block mt-1 text-base font-bold">{formatClp(report.total_amount)}</span>
+        {inReview.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-border bg-surface p-6 text-center text-sm text-muted-foreground">
+            No hay rendiciones en proceso de revisión.
+          </div>
+        ) : (
+          inReview.map((report) => {
+            const statusCfg = REPORT_STATUS_CONFIG[report.status] || { label: report.status, bg: "bg-gray-100", text: "text-gray-700" };
+            return (
+              <div key={report.id} className="rounded-2xl border border-border bg-surface p-5 shadow-sm space-y-2">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-bold text-base">{report.title}</h3>
+                      <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${statusCfg.bg} ${statusCfg.text}`}>
+                        {statusCfg.label}
+                      </span>
+                    </div>
+                    {currentView === "empresa" && (
+                      <p className="text-xs font-semibold text-primary mt-0.5">
+                        Rendido por: {report.user_profile?.full_name || report.user_profile?.email}
+                      </p>
+                    )}
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Enviado el {formatDate(report.submitted_at)} · {report.expenses?.length || 0} gastos incluidos
+                    </p>
+                  </div>
+                  <div className="text-left sm:text-right">
+                    <span className="block text-xs uppercase text-muted-foreground">Total</span>
+                    <span className="text-lg font-bold text-foreground">{formatClp(report.total_amount)}</span>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
-      )}
+            );
+          })
+        )}
+      </div>
 
-      {/* 3. SECCIÓN: HISTORIAL DE INFORMES APROBADOS / LIQUIDADOS */}
-      {history.length > 0 && (
-        <div className="space-y-4 pt-4">
-          <h2 className="text-base font-bold">Historial de Rendiciones Pasadas</h2>
+      {/* 3. SECCIÓN: HISTORIAL DE RENDICIONES */}
+      <div className="space-y-4">
+        <h2 className="text-base font-bold flex items-center gap-2">
+          <CheckCircle2 size={18} className="text-emerald-600" />
+          {currentView === "empresa" ? `Historial de Rendiciones de la Empresa (${history.length})` : `Mi Historial de Rendiciones (${history.length})`}
+        </h2>
+
+        {history.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-border bg-surface p-6 text-center text-sm text-muted-foreground">
+            Aún no hay rendiciones finalizadas en el historial.
+          </div>
+        ) : (
           <div className="divide-y divide-border rounded-2xl border border-border bg-surface p-5 shadow-sm">
             {history.map((report) => {
               const statusCfg = REPORT_STATUS_CONFIG[report.status] || { label: report.status, bg: "bg-gray-100", text: "text-gray-700" };
               return (
-                <div key={report.id} className="py-3 flex items-center justify-between">
+                <div key={report.id} className="py-3.5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <h3 className="font-semibold text-sm">{report.title}</h3>
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-sm">{report.title}</span>
+                      <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${statusCfg.bg} ${statusCfg.text}`}>
+                        {statusCfg.label}
+                      </span>
+                    </div>
+                    {currentView === "empresa" && (
+                      <p className="text-xs font-semibold text-primary mt-0.5">
+                        Colaborador: {report.user_profile?.full_name || report.user_profile?.email}
+                      </p>
+                    )}
                     <p className="text-xs text-muted-foreground">
-                      Fecha: {formatDate(report.created_at)} · {report.expenses?.length || 0} ítems
+                      {report.report_type === "fund_rendition" ? `Fondo: ${report.cash_advances?.purpose || "Fondo Operativo"}` : "Reembolso Directo"} · Creado el {formatDate(report.created_at)}
                     </p>
                   </div>
-                  <div className="text-right">
-                    <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${statusCfg.bg} ${statusCfg.text}`}>
-                      {statusCfg.label}
-                    </span>
-                    <span className="block mt-0.5 text-sm font-bold">{formatClp(report.approved_amount || report.total_amount)}</span>
+                  <div className="text-left sm:text-right">
+                    <span className="text-base font-bold text-foreground">{formatClp(report.total_amount)}</span>
                   </div>
                 </div>
               );
             })}
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </section>
   );
 }
