@@ -204,49 +204,94 @@ export async function addExpense(f: FormData) {
   redirect(`/gastos?success=gasto_agregado`);
 }
 
-/** Enviar informe a revisión / aprobación */
+/** Enviar o Auto-Autorizar informe de gastos */
 export async function submitReport(f: FormData) {
   const profile = await requireRole();
   const reportId = str(f, "report_id");
   if (!reportId) fail("/gastos", "ID de informe no válido.");
 
   const sb = await createClient();
+  const isManagement = ["admin", "general_manager", "manager"].includes(profile.role);
 
-  // Actualizar informe a submitted
-  const { error } = await sb
-    .from("expense_reports")
-    .update({ status: "submitted" })
-    .eq("id", reportId)
-    .eq("user_id", profile.id);
+  if (isManagement) {
+    // Para roles de gerencia o administración, se auto-aprueban los gastos y el informe directamente
+    // 1. Aprobar todos los gastos del informe que no hayan sido rechazados
+    const { error: expError } = await sb
+      .from("expenses")
+      .update({ status: "approved" })
+      .eq("report_id", reportId)
+      .neq("status", "rejected");
 
-  if (error) {
-    fail("/gastos", `Error al enviar informe: ${error.message}`);
-  }
+    if (expError) {
+      fail("/gastos", `Error al autorizar gastos: ${expError.message}`);
+    }
 
-  // Registrar en historial de aprobaciones
-  await sb.from("approval_history").insert({
-    report_id: reportId,
-    subject_user_id: profile.id,
-    action: "submitted",
-    comments: "Informe enviado a revisión por el colaborador",
-  });
+    // 2. Actualizar el informe a approved y etapa concluida
+    const { error: repError } = await sb
+      .from("expense_reports")
+      .update({
+        status: "approved",
+        approval_stage: "done",
+      })
+      .eq("id", reportId)
+      .eq("user_id", profile.id);
 
-  // Notificar a aprobadores
-  try {
-    await notifyRole(["admin", "manager", "general_manager"], {
-      title: "Nueva Rendición de Gastos",
-      message: `${profile.full_name} ha enviado un informe de gastos para revisión y aprobación.`,
-      type: "expense_submitted",
-      link: "/aprobaciones",
+    if (repError) {
+      fail("/gastos", `Error al autorizar informe: ${repError.message}`);
+    }
+
+    // 3. Registrar en historial de aprobaciones
+    await sb.from("approval_history").insert({
+      report_id: reportId,
+      subject_user_id: profile.id,
+      approver_id: profile.id,
+      action: "approved",
+      comments: "Informe auto-autorizado directamente por perfil gerencial / administración",
     });
-  } catch (err) {
-    console.error("Error notificando envío de informe:", err);
-  }
 
-  revalidatePath("/gastos");
-  revalidatePath("/aprobaciones");
-  revalidatePath("/dashboard");
-  redirect("/gastos?success=informe_enviado");
+    revalidatePath("/gastos");
+    revalidatePath("/aprobaciones");
+    revalidatePath("/fondos");
+    revalidatePath("/dashboard");
+    redirect("/gastos?success=informe_auto_aprobado");
+  } else {
+    // Para colaboradores comunes, pasa a estado 'submitted' a la bandeja de revisión
+    const { error } = await sb
+      .from("expense_reports")
+      .update({ status: "submitted" })
+      .eq("id", reportId)
+      .eq("user_id", profile.id);
+
+    if (error) {
+      fail("/gastos", `Error al enviar informe: ${error.message}`);
+    }
+
+    // Registrar en historial de aprobaciones
+    await sb.from("approval_history").insert({
+      report_id: reportId,
+      subject_user_id: profile.id,
+      action: "submitted",
+      comments: "Informe enviado a revisión por el colaborador",
+    });
+
+    // Notificar a aprobadores
+    try {
+      await notifyRole(["admin", "manager", "general_manager"], {
+        title: "Nueva Rendición de Gastos",
+        message: `${profile.full_name} ha enviado un informe de gastos para revisión y aprobación.`,
+        type: "expense_submitted",
+        link: "/aprobaciones",
+      });
+    } catch (err) {
+      console.error("Error notificando envío de informe:", err);
+    }
+
+    revalidatePath("/gastos");
+    revalidatePath("/aprobaciones");
+    revalidatePath("/fondos");
+    revalidatePath("/dashboard");
+    redirect("/gastos?success=informe_enviado");
+  }
 }
 
 /** Eliminar un gasto de un informe borrador */

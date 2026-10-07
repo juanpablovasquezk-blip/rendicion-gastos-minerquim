@@ -120,7 +120,13 @@ export default async function GastosPage({
       {success === "gasto_agregado" && (
         <div className="flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-300">
           <CheckCircle2 size={20} className="shrink-0" />
-          <span>Gasto guardado en tu informe borrador. Puedes agregar más gastos o pulsar &quot;Enviar a Revisión&quot;.</span>
+          <span>Gasto guardado en tu informe borrador. Puedes agregar más gastos o pulsar &quot;{isManagement ? "Autorizar Rendición" : "Enviar a Revisión"}&quot;.</span>
+        </div>
+      )}
+      {success === "informe_auto_aprobado" && (
+        <div className="flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-300">
+          <CheckCircle2 size={20} className="shrink-0" />
+          <span>¡Informe y gastos autorizados directamente con éxito!</span>
         </div>
       )}
       {success === "informe_enviado" && (
@@ -181,8 +187,17 @@ export default async function GastosPage({
                           type="submit"
                           className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow transition hover:bg-emerald-700 active:scale-95"
                         >
-                          <Send size={16} />
-                          Enviar a Revisión
+                          {isManagement ? (
+                            <>
+                              <CheckCircle2 size={16} />
+                              {report.report_type === "fund_rendition" ? "Autorizar Rendición" : "Autorizar Reembolso"}
+                            </>
+                          ) : (
+                            <>
+                              <Send size={16} />
+                              Enviar a Revisión
+                            </>
+                          )}
                         </button>
                       </form>
                     )}
