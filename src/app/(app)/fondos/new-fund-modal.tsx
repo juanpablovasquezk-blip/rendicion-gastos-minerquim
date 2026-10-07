@@ -5,13 +5,19 @@ import { Plus, X, Wallet, Coins } from "lucide-react";
 import { requestFund } from "./actions";
 import { formatClp } from "@/lib/format";
 
-export function NewFundModal({ userCreditBalance = 0 }: { userCreditBalance?: number }) {
+export function NewFundModal({
+  userCreditBalance = 0,
+  userApprovedReimbursementsTotal = 0,
+}: {
+  userCreditBalance?: number;
+  userApprovedReimbursementsTotal?: number;
+}) {
   const [open, setOpen] = useState(false);
   const [amountStr, setAmountStr] = useState("");
 
   const numAmount = Number(amountStr.replace(/\D/g, "")) || 0;
   const appliedCredit = Math.min(userCreditBalance, numAmount);
-  const netDeposit = Math.max(0, numAmount - appliedCredit);
+  const netDeposit = Math.max(0, numAmount - appliedCredit + userApprovedReimbursementsTotal);
 
   const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const raw = e.target.value.replace(/\D/g, "");
@@ -78,16 +84,34 @@ export function NewFundModal({ userCreditBalance = 0 }: { userCreditBalance?: nu
                 </div>
               </label>
 
-              {userCreditBalance > 0 && numAmount > 0 && (
-                <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-3 text-xs text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200 space-y-1.5">
+              {(userCreditBalance > 0 || userApprovedReimbursementsTotal > 0) && numAmount > 0 && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-3.5 text-xs text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200 space-y-1.5">
                   <div className="flex items-center gap-2 font-bold text-amber-900 dark:text-amber-300">
                     <Coins size={15} />
-                    <span>Abono de saldo acumulado anterior: {formatClp(appliedCredit)}</span>
+                    <span>Consolidación de Transferencia</span>
                   </div>
-                  <p className="text-[11px] leading-relaxed">
-                    Tienes <strong>{formatClp(userCreditBalance)}</strong> de saldo a favor de la empresa de un fondo anterior.
-                    Al solicitar este fondo por {formatClp(numAmount)}, se abonarán automáticamente {formatClp(appliedCredit)} y Gerencia General solo tendrá que transferirte <strong>{formatClp(netDeposit)}</strong>.
-                  </p>
+                  <div className="space-y-1 text-[11px] leading-relaxed">
+                    <p>• Monto del nuevo fondo solicitado: <strong>{formatClp(numAmount)}</strong></p>
+                    {userApprovedReimbursementsTotal > 0 && (
+                      <p className="text-emerald-700 dark:text-emerald-400">
+                        • Reembolsos aprobados a tu favor por saldar: <strong>+{formatClp(userApprovedReimbursementsTotal)}</strong>
+                      </p>
+                    )}
+                    {userCreditBalance > 0 && (
+                      <p className="text-amber-700 dark:text-amber-400">
+                        • Abono de saldo anterior a favor de la empresa: <strong>-{formatClp(appliedCredit)}</strong>
+                      </p>
+                    )}
+                    <p className="border-t border-amber-300/60 pt-1 font-bold text-foreground">
+                      Monto total a transferirte por Gerencia General:{" "}
+                      <span className="text-primary text-xs">{formatClp(netDeposit)}</span>
+                    </p>
+                    {userApprovedReimbursementsTotal > 0 && (
+                      <p className="text-[10px] text-muted-foreground italic">
+                        * Al depositarte este fondo, tus reembolsos pendientes quedarán automáticamente saldados y pagados.
+                      </p>
+                    )}
+                  </div>
                 </div>
               )}
 

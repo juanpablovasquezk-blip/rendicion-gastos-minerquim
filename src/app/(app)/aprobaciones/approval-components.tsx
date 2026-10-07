@@ -192,6 +192,7 @@ export function DepositFundModal({
   purpose,
   companyName,
   appliedCredit = 0,
+  reimbursementsBonus = 0,
   netDepositAmount,
 }: {
   fundId: string;
@@ -200,6 +201,7 @@ export function DepositFundModal({
   purpose: string;
   companyName: string;
   appliedCredit?: number;
+  reimbursementsBonus?: number;
   netDepositAmount?: number;
 }) {
   const router = useRouter();
@@ -328,24 +330,44 @@ export function DepositFundModal({
               </div>
             )}
 
-            <div className="mt-4 rounded-xl border border-border bg-background p-3.5 space-y-1 text-xs text-muted-foreground">
+            <div className="mt-4 rounded-xl border border-border bg-background p-3.5 space-y-1.5 text-xs text-muted-foreground">
               <p><strong className="text-foreground">Destinatario:</strong> {solicitante}</p>
               <p><strong className="text-foreground">Empresa:</strong> {companyName}</p>
-              <p><strong className="text-foreground">Monto Total Fondo:</strong> <span className="text-primary font-bold text-sm">{formatClp(amount)}</span></p>
-              {appliedCredit > 0 && (
-                <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 p-2 my-1 text-xs space-y-0.5">
-                  <p className="text-amber-900 dark:text-amber-300">
-                    <strong>Abono de saldo acumulado anterior:</strong> {formatClp(appliedCredit)}
-                  </p>
-                  <p className="font-bold text-foreground">
-                    Monto neto a transferir/entregar hoy:{" "}
-                    <span className="text-emerald-600 dark:text-emerald-400 font-extrabold text-sm">
-                      {formatClp(netDepositAmount != null ? netDepositAmount : amount - appliedCredit)}
-                    </span>
-                  </p>
-                </div>
-              )}
               <p><strong className="text-foreground">Motivo:</strong> {purpose}</p>
+
+              <div className="rounded-xl border border-border bg-surface p-3 space-y-1.5 mt-2">
+                <div className="flex justify-between items-center text-xs">
+                  <span>Monto del Nuevo Fondo:</span>
+                  <span className="font-bold text-foreground">{formatClp(amount)}</span>
+                </div>
+
+                {reimbursementsBonus > 0 && (
+                  <div className="flex justify-between items-center text-xs text-emerald-700 dark:text-emerald-400 font-medium">
+                    <span>+ Reembolso(s) Aprobado(s) por pagar al empleado:</span>
+                    <span className="font-bold">+{formatClp(reimbursementsBonus)}</span>
+                  </div>
+                )}
+
+                {appliedCredit > 0 && (
+                  <div className="flex justify-between items-center text-xs text-amber-700 dark:text-amber-400 font-medium">
+                    <span>- Abono saldo a favor empresa (fondo anterior):</span>
+                    <span className="font-bold">-{formatClp(appliedCredit)}</span>
+                  </div>
+                )}
+
+                <div className="flex justify-between items-center border-t border-border pt-2 text-sm font-extrabold text-foreground">
+                  <span>Monto Total a Transferir Hoy:</span>
+                  <span className="text-primary text-base">
+                    {formatClp(netDepositAmount != null ? netDepositAmount : amount - appliedCredit + reimbursementsBonus)}
+                  </span>
+                </div>
+
+                {reimbursementsBonus > 0 && (
+                  <p className="text-[10px] text-muted-foreground italic pt-1">
+                    * Al activar este fondo, el/los reembolsos pendientes del colaborador quedarán automáticamente marcados como pagados y saldados.
+                  </p>
+                )}
+              </div>
             </div>
 
             <form onSubmit={handleSubmit} className="mt-4 space-y-4">

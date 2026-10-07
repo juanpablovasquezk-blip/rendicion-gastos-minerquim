@@ -116,7 +116,13 @@ export default async function FondosPage({
                 <Plus size={16} />
                 Rendir Gasto / Reembolso
               </Link>
-              <NewFundModal userCreditBalance={Number(profile.credit_balance || 0)} />
+              <NewFundModal
+                userCreditBalance={Number(profile.credit_balance || 0)}
+                userApprovedReimbursementsTotal={approvedReimbursements.reduce(
+                  (acc, r) => acc + Number(r.total_amount || 0),
+                  0
+                )}
+              />
             </>
           )}
           {isGeneralManager && (

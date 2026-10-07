@@ -39,9 +39,23 @@ export async function requestFund(f: FormData) {
     .eq("id", profile.id)
     .single();
 
+  // Verificar si el colaborador tiene reembolsos aprobados pendientes de pago para incluirlos en la transferencia
+  const { data: approvedReimbursements } = await sb
+    .from("expense_reports")
+    .select("id, total_amount, title")
+    .eq("user_id", profile.id)
+    .eq("report_type", "reimbursement")
+    .eq("status", "approved");
+
+  const reimbursementsBonus = (approvedReimbursements || []).reduce(
+    (acc, r) => acc + Number(r.total_amount || 0),
+    0
+  );
+  const linkedReimbursementIds = (approvedReimbursements || []).map((r) => r.id);
+
   const creditBalance = Number(userProfile?.credit_balance || 0);
   const appliedCredit = Math.min(creditBalance, requested_amount);
-  const netDepositAmount = requested_amount - appliedCredit;
+  const netDepositAmount = requested_amount - appliedCredit + reimbursementsBonus;
 
   const { data: newFund, error } = await sb
     .from("cash_advances")
@@ -51,6 +65,8 @@ export async function requestFund(f: FormData) {
       requested_amount,
       approved_amount: requested_amount,
       applied_credit: appliedCredit,
+      reimbursements_bonus: reimbursementsBonus,
+      linked_reimbursement_ids: linkedReimbursementIds,
       net_deposit_amount: netDepositAmount,
     })
     .select("id")
@@ -70,19 +86,24 @@ export async function requestFund(f: FormData) {
 
   const isApproverRole = profile.role === "admin" || profile.role === "manager";
 
+  // Construir nota informativa
+  let detailNote = "";
+  if (reimbursementsBonus > 0 && appliedCredit > 0) {
+    detailNote = ` (Incluye +${formatClp(reimbursementsBonus)} de reembolsos pendientes y -${formatClp(appliedCredit)} de saldo anterior. Total a transferir: ${formatClp(netDepositAmount)}).`;
+  } else if (reimbursementsBonus > 0) {
+    detailNote = ` (Incluye +${formatClp(reimbursementsBonus)} de reembolsos pendientes. Total a transferir: ${formatClp(netDepositAmount)}).`;
+  } else if (appliedCredit > 0) {
+    detailNote = ` (Se abonaron ${formatClp(appliedCredit)} de saldo anterior. Total a transferir: ${formatClp(netDepositAmount)}).`;
+  }
+
   // 1. Notificar al solicitante (In-App)
   try {
-    const depositNote =
-      appliedCredit > 0
-        ? ` (Se abonaron ${formatClp(appliedCredit)} de saldo anterior. Gerencia General transferirá ${formatClp(netDepositAmount)}).`
-        : "";
-
     await sendNotification({
       userId: profile.id,
       title: "Solicitud de Fondo Enviada",
       message: isApproverRole
-        ? `Tu solicitud por ${formatClp(requested_amount)} ("${purpose}") fue enviada directamente a Gerencia General para transferencia${depositNote}.`
-        : `Tu solicitud por ${formatClp(requested_amount)} ("${purpose}") fue enviada a revisión de Operaciones${depositNote}.`,
+        ? `Tu solicitud por ${formatClp(requested_amount)} ("${purpose}") fue enviada directamente a Gerencia General para transferencia${detailNote}.`
+        : `Tu solicitud por ${formatClp(requested_amount)} ("${purpose}") fue enviada a revisión de Operaciones${detailNote}.`,
       type: isApproverRole ? "fund_approved" : "fund_requested",
       link: "/fondos",
       channels: ["in_app"],
@@ -93,16 +114,11 @@ export async function requestFund(f: FormData) {
 
   // 2. Notificar al aprobador correspondiente
   try {
-    const creditMsg =
-      appliedCredit > 0
-        ? ` Nota: El colaborador tiene ${formatClp(appliedCredit)} a favor de un fondo anterior; monto neto a transferir: ${formatClp(netDepositAmount)}.`
-        : "";
-
     if (isApproverRole) {
       // Pasa directo a Gerencia General
       await notifyRole("general_manager", {
         title: "Solicitud de Fondo de Gerencia",
-        message: `${profile.full_name} ha solicitado un fondo de ${formatClp(requested_amount)} para "${purpose}".${creditMsg}`,
+        message: `${profile.full_name} ha solicitado un fondo de ${formatClp(requested_amount)} para "${purpose}".${detailNote}`,
         type: "fund_approved",
         link: "/aprobaciones",
       });
@@ -112,7 +128,7 @@ export async function requestFund(f: FormData) {
         ["admin", "manager"],
         {
           title: "Nueva Solicitud de Fondo",
-          message: `${profile.full_name} ha solicitado un fondo por ${formatClp(requested_amount)} para "${purpose}".${creditMsg}`,
+          message: `${profile.full_name} ha solicitado un fondo por ${formatClp(requested_amount)} para "${purpose}".${detailNote}`,
           type: "fund_requested",
           link: "/aprobaciones",
         },

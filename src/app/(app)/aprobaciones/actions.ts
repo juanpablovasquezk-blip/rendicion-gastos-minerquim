@@ -147,10 +147,10 @@ export async function depositFundByGM(f: FormData): Promise<ApprovalActionResult
       }
     }
 
-    // 2. Obtener fondo para saber monto y dueño
+    // 2. Obtener fondo para saber monto, dueño y reembolsos vinculados
     const { data: fund, error: fundErr } = await sb
       .from("cash_advances")
-      .select("approved_amount, requested_amount, user_id, purpose")
+      .select("approved_amount, requested_amount, user_id, purpose, reimbursements_bonus, linked_reimbursement_ids, net_deposit_amount")
       .eq("id", fundId)
       .single();
 
@@ -159,6 +159,8 @@ export async function depositFundByGM(f: FormData): Promise<ApprovalActionResult
     }
 
     const amountToActivate = fund.approved_amount || fund.requested_amount || 0;
+    const bonusReimbursements = Number(fund.reimbursements_bonus || 0);
+    const linkedReports = fund.linked_reimbursement_ids || [];
 
     // 3. Activar el fondo en la base de datos
     const { error } = await sb
@@ -179,23 +181,55 @@ export async function depositFundByGM(f: FormData): Promise<ApprovalActionResult
       return { success: false, error: `Error al activar fondo: ${error.message}` };
     }
 
-    // Registrar en historial
+    // 4. Si el fondo incluía pago conjunto de reembolsos pendientes, liquidar esos informes
+    if (linkedReports.length > 0) {
+      await sb
+        .from("expense_reports")
+        .update({
+          status: "settled",
+          approval_stage: "done",
+        })
+        .in("id", linkedReports);
+
+      for (const repId of linkedReports) {
+        await sb.from("approval_history").insert({
+          report_id: repId,
+          subject_user_id: fund.user_id,
+          approver_id: profile.id,
+          action: "settled",
+          comments: `Reembolso pagado y cerrado conjuntamente en la transferencia del fondo "${fund.purpose}".`,
+        });
+      }
+    }
+
+    // Registrar en historial del fondo
     const methodLabel = paymentMethod === "cash" ? "Entrega en Efectivo" : "Transferencia Bancaria";
+    const bonusNote =
+      bonusReimbursements > 0
+        ? ` Incluye pago conjunto de ${formatClp(bonusReimbursements)} por reembolsos aprobados.`
+        : "";
+
     await sb.from("approval_history").insert({
       fund_id: fundId,
       subject_user_id: fund.user_id,
       approver_id: profile.id,
       action: "deposited",
-      comments: `Fondo entregado y activado (${methodLabel}). ${depositNote ? `Nota: ${depositNote}` : ""}`,
+      comments: `Fondo entregado y activado (${methodLabel}).${bonusNote} ${depositNote ? `Nota: ${depositNote}` : ""}`,
     });
 
     // Notificar al colaborador que los fondos fueron transferidos/entregados y están activos
     try {
       const actionDesc = paymentMethod === "cash" ? "la entrega de dinero en efectivo" : "la transferencia bancaria";
+      const totalTransferred = Number(fund.net_deposit_amount || amountToActivate);
+      const extraMsg =
+        bonusReimbursements > 0
+          ? ` (${formatClp(amountToActivate)} para el fondo + ${formatClp(bonusReimbursements)} de tus reembolsos pendientes). Tus reembolsos quedaron saldados y tu nuevo fondo está activo.`
+          : ` para "${fund.purpose}". Ya puedes comenzar a rendir gastos.`;
+
       await sendNotification({
         userId: fund.user_id,
         title: "¡Fondo Entregado y Activo!",
-        message: `Se ha registrado ${actionDesc} por ${formatClp(amountToActivate)} para "${fund.purpose}". Ya puedes comenzar a rendir gastos.`,
+        message: `Se ha registrado ${actionDesc} por ${formatClp(totalTransferred)}${extraMsg}`,
         type: "fund_deposited",
         link: "/fondos",
       });
