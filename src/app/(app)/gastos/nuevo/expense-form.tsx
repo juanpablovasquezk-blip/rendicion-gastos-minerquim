@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Camera, Upload, AlertTriangle, FileText, CheckCircle2, Sparkles, Loader2, WifiOff, Save, AlertCircle } from "lucide-react";
+import { Camera, Upload, AlertTriangle, FileText, CheckCircle2, Sparkles, Loader2, WifiOff, Save, AlertCircle, Zap } from "lucide-react";
 import { saveExpenseAction } from "../actions";
 import { formatRut } from "@/lib/format";
 import { cacheCatalogs, getCachedCatalogs, saveOfflineExpense } from "@/lib/offline-expenses";
+import { compressImage } from "@/lib/image-compression";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 
@@ -47,6 +48,7 @@ export function ExpenseForm({
   const [isOnline, setIsOnline] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [compressionBadge, setCompressionBadge] = useState<string | null>(null);
   const [offlineSavedSuccess, setOfflineSavedSuccess] = useState(false);
   const [selectedFileObj, setSelectedFileObj] = useState<File | null>(null);
 
@@ -154,14 +156,40 @@ export function ExpenseForm({
     }
   };
 
-  // Disparo automático de OCR al seleccionar archivo o tomar foto
+  // Disparo automático de compresión y OCR al seleccionar archivo o tomar foto
   const handleFileSelected = async (file: File | undefined) => {
     if (!file) return;
 
-    setSelectedFileObj(file);
-    setFileName(file.name);
+    let targetFile = file;
+    setCompressionBadge(null);
+
+    // Si es imagen, comprimir y optimizar de inmediato en el navegador
     if (file.type.startsWith("image/")) {
-      const url = URL.createObjectURL(file);
+      try {
+        const originalSizeKB = Math.round(file.size / 1024);
+        targetFile = await compressImage(file, {
+          maxWidth: 1920,
+          maxHeight: 1920,
+          quality: 0.82,
+          targetMimeType: "image/jpeg",
+        });
+        const compressedSizeKB = Math.round(targetFile.size / 1024);
+
+        if (compressedSizeKB < originalSizeKB) {
+          const reductionPct = Math.round(((originalSizeKB - compressedSizeKB) / originalSizeKB) * 100);
+          setCompressionBadge(
+            `⚡ Optimizado: ${(originalSizeKB / 1024).toFixed(1)} MB ➔ ${compressedSizeKB} KB (-${reductionPct}%)`
+          );
+        }
+      } catch (err) {
+        console.warn("No se pudo comprimir la imagen en navegador:", err);
+      }
+    }
+
+    setSelectedFileObj(targetFile);
+    setFileName(targetFile.name);
+    if (targetFile.type.startsWith("image/")) {
+      const url = URL.createObjectURL(targetFile);
       setPreviewUrl(url);
     } else {
       setPreviewUrl(null);
@@ -181,7 +209,7 @@ export function ExpenseForm({
 
     try {
       const body = new FormData();
-      body.append("file", file);
+      body.append("file", targetFile);
 
       const res = await fetch("/api/ocr", {
         method: "POST",
@@ -626,19 +654,28 @@ export function ExpenseForm({
                     <CheckCircle2 size={16} /> Comprobante cargado
                   </div>
                   <p className="mt-1 max-w-xs truncate text-xs text-muted-foreground">{fileName}</p>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPreviewUrl(null);
-                      setFileName(null);
-                      setOcrMessage(null);
-                      if (fileInputRef.current) fileInputRef.current.value = "";
-                      if (cameraInputRef.current) cameraInputRef.current.value = "";
-                    }}
-                    className="mt-2 text-xs font-semibold text-rose-600 hover:underline"
-                  >
-                    Cambiar o eliminar comprobante
-                  </button>
+                  {compressionBadge && (
+                    <div className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-emerald-100/80 px-2.5 py-0.5 text-[11px] font-bold text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+                      <Zap size={12} className="text-emerald-600 dark:text-emerald-400" />
+                      <span>{compressionBadge}</span>
+                    </div>
+                  )}
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPreviewUrl(null);
+                        setFileName(null);
+                        setOcrMessage(null);
+                        setCompressionBadge(null);
+                        if (fileInputRef.current) fileInputRef.current.value = "";
+                        if (cameraInputRef.current) cameraInputRef.current.value = "";
+                      }}
+                      className="mt-2 text-xs font-semibold text-rose-600 hover:underline"
+                    >
+                      Cambiar o eliminar comprobante
+                    </button>
+                  </div>
                 </div>
               </div>
 

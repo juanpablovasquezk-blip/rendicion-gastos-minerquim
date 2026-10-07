@@ -4,6 +4,7 @@ import { useState, useRef } from "react";
 import { Check, X, Upload, FileText, CheckCircle2, Ban, Loader2 } from "lucide-react";
 import { approveFundByAdmin, depositFundByGM, rejectFund, approveExpenseItem, rejectExpenseItem, settleReimbursementWithProof } from "./actions";
 import { formatClp, formatRut, formatDate } from "@/lib/format";
+import { compressImage } from "@/lib/image-compression";
 
 /* -------------------------------------------------------------------------
    1. Modal de Aprobación de Fondos por Gerencia de Operaciones
@@ -194,12 +195,20 @@ export function DepositFundModal({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const handleSetFile = (file: File) => {
-    setSelectedFile(file);
-    setFileName(file.name || "comprobante_deposito.png");
-    setErrorMessage(null);
+  const handleSetFile = async (file: File) => {
+    let target = file;
     if (file.type.startsWith("image/")) {
-      setPreviewUrl(URL.createObjectURL(file));
+      try {
+        target = await compressImage(file, { maxWidth: 1920, maxHeight: 1920, quality: 0.82 });
+      } catch (err) {
+        console.warn("Error comprimiendo comprobante de depósito:", err);
+      }
+    }
+    setSelectedFile(target);
+    setFileName(target.name || "comprobante_deposito.png");
+    setErrorMessage(null);
+    if (target.type.startsWith("image/")) {
+      setPreviewUrl(URL.createObjectURL(target));
     } else {
       setPreviewUrl(null);
     }
@@ -661,12 +670,20 @@ export function SettleReimbursementModal({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const handleSetFile = (file: File) => {
-    setSelectedFile(file);
-    setFileName(file.name || "comprobante_transferencia.png");
-    setErrorMessage(null);
+  const handleSetFile = async (file: File) => {
+    let target = file;
     if (file.type.startsWith("image/")) {
-      setPreviewUrl(URL.createObjectURL(file));
+      try {
+        target = await compressImage(file, { maxWidth: 1920, maxHeight: 1920, quality: 0.82 });
+      } catch (err) {
+        console.warn("Error comprimiendo comprobante de liquidación:", err);
+      }
+    }
+    setSelectedFile(target);
+    setFileName(target.name || "comprobante_transferencia.png");
+    setErrorMessage(null);
+    if (target.type.startsWith("image/")) {
+      setPreviewUrl(URL.createObjectURL(target));
     } else {
       setPreviewUrl(null);
     }
