@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { normalizeRut } from "@/lib/format";
+import { notifyRole } from "@/lib/notifications/service";
 import crypto from "crypto";
 
 const str = (f: FormData, k: string) => String(f.get(k) ?? "").trim();
@@ -197,6 +198,14 @@ export async function submitReport(f: FormData) {
     action: "submitted",
     comments: "Informe enviado a revisión por el colaborador",
   });
+
+  // Notificar a aprobadores
+  notifyRole(["admin", "manager", "general_manager"], {
+    title: "Nueva Rendición de Gastos",
+    message: `${profile.full_name} ha enviado un informe de gastos para revisión y aprobación.`,
+    type: "expense_submitted",
+    link: "/aprobaciones",
+  }).catch((err) => console.error("Error notificando envío de informe:", err));
 
   revalidatePath("/gastos");
   revalidatePath("/aprobaciones");

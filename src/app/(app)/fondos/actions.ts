@@ -4,6 +4,8 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import { notifyRole } from "@/lib/notifications/service";
+import { formatClp } from "@/lib/format";
 
 const str = (f: FormData, k: string) => String(f.get(k) ?? "").trim();
 const money = (f: FormData, k: string) => {
@@ -45,6 +47,14 @@ export async function requestFund(f: FormData) {
     }
     fail("/fondos", `Error al crear la solicitud: ${error.message}`);
   }
+
+  // Notificar a Gerencia de Operaciones y Administradores
+  notifyRole(["admin", "manager"], {
+    title: "Nueva Solicitud de Fondo",
+    message: `${profile.full_name} ha solicitado un fondo por ${formatClp(requested_amount)} para "${purpose}".`,
+    type: "fund_requested",
+    link: "/aprobaciones",
+  }).catch((err) => console.error("Error notificando solicitud de fondo:", err));
 
   revalidatePath("/fondos");
   redirect("/fondos?success=solicitud_creada");

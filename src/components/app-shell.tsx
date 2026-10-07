@@ -17,6 +17,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { NotificationBell } from "@/components/notification-bell";
 import { signOut } from "@/app/login/actions";
 import { ROLE_LABELS, type UserRole } from "@/lib/roles";
 
@@ -119,6 +120,7 @@ export function AppShell({ role, name, email, children }: Props) {
             Hola, <span className="font-semibold text-foreground">{name}</span> · {email}
           </p>
           <div className="flex items-center gap-2">
+            <NotificationBell />
             <ThemeToggle compact />
             <form action={signOut} className="md:hidden">
               <button aria-label="Cerrar sesión" className="rounded-full border border-border bg-surface p-2">
