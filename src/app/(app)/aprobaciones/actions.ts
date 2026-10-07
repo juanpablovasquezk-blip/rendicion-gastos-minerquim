@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { sendNotification, notifyRole } from "@/lib/notifications/service";
 import { formatClp } from "@/lib/format";
 
@@ -584,5 +585,126 @@ export async function settleReimbursementWithProof(f: FormData): Promise<Approva
   } catch (err: any) {
     console.error("Error en settleReimbursementWithProof:", err);
     return { success: false, error: err?.message || "Error al liquidar el reembolso." };
+  }
+}
+
+/** Liquidar y registrar pago agrupado de múltiples reembolsos a un trabajador en una sola transferencia o entrega de efectivo */
+export async function settleMultipleReimbursementsWithProof(f: FormData): Promise<ApprovalActionResult> {
+  try {
+    const profile = await requireRole("admin", "general_manager");
+    const rawIds = str(f, "report_ids");
+    const paymentMethod = str(f, "payment_method") || "transfer"; // 'transfer' | 'cash'
+    const paymentNote = str(f, "payment_note");
+    const proofFile = f.get("proof_file") as File | null;
+
+    let reportIds: string[] = [];
+    try {
+      reportIds = JSON.parse(rawIds);
+    } catch {
+      reportIds = rawIds.split(",").map((s) => s.trim()).filter(Boolean);
+    }
+
+    if (!reportIds || reportIds.length === 0) {
+      return { success: false, error: "Debes seleccionar al menos un informe de reembolso para liquidar." };
+    }
+
+    const adminSb = createAdminClient();
+
+    let receiptPath: string | null = null;
+
+    // Si es transferencia bancaria, subir comprobante consolidated
+    if (paymentMethod === "transfer") {
+      if (!proofFile || proofFile.size === 0) {
+        return { success: false, error: "Debes adjuntar el comprobante o captura de la transferencia bancaria." };
+      }
+      const fileExt = proofFile.name.split(".").pop() || "jpg";
+      const fileName = `reimbursements/batch_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
+      const bytes = await proofFile.arrayBuffer();
+      const buffer = Buffer.from(bytes);
+
+      const { error: uploadErr } = await adminSb.storage
+        .from("deposits")
+        .upload(fileName, buffer, {
+          contentType: proofFile.type || "image/jpeg",
+          upsert: true,
+        });
+
+      if (uploadErr) {
+        return { success: false, error: `Error al subir comprobante: ${uploadErr.message}` };
+      }
+      receiptPath = fileName;
+    }
+
+    // Obtener información de los informes
+    const { data: reports, error: repsErr } = await adminSb
+      .from("expense_reports")
+      .select(`
+        id, user_id, total_amount, title,
+        expenses(total_amount)
+      `)
+      .in("id", reportIds);
+
+    if (repsErr || !reports || reports.length === 0) {
+      return { success: false, error: "No se encontraron los informes de reembolso seleccionados." };
+    }
+
+    // Liquidar todos los informes
+    const { error: updErr } = await adminSb
+      .from("expense_reports")
+      .update({
+        status: "settled",
+        approval_stage: "done",
+      })
+      .in("id", reportIds);
+
+    if (updErr) {
+      return { success: false, error: `Error al liquidar informes: ${updErr.message}` };
+    }
+
+    // Registrar auditoría para cada informe
+    for (const rep of reports) {
+      await adminSb.from("approval_history").insert({
+        report_id: rep.id,
+        subject_user_id: rep.user_id,
+        approver_id: profile.id,
+        action: "settled",
+        comments: `Reembolso liquidado y pagado en lote (${paymentMethod === "cash" ? "Pago en Efectivo" : "Transferencia Bancaria"}). ${paymentNote ? `Nota: ${paymentNote}` : ""}`,
+      });
+    }
+
+    // Calcular monto total consolidado
+    const totalConsolidated = reports.reduce((acc, rep) => {
+      const amt = Number(rep.total_amount || 0) > 0
+        ? Number(rep.total_amount || 0)
+        : (rep.expenses || []).reduce((sum, e) => sum + Number(e.total_amount || 0), 0);
+      return acc + amt;
+    }, 0);
+
+    const targetUserId = reports[0].user_id;
+
+    // Notificar al colaborador
+    try {
+      await sendNotification({
+        userId: targetUserId,
+        title: "¡Reembolsos Liquidados y Pagados!",
+        message: reports.length === 1
+          ? `Tu informe "${reports[0].title}" por ${formatClp(totalConsolidated)} fue pagado mediante ${paymentMethod === "cash" ? "Efectivo" : "Transferencia Bancaria"}.`
+          : `Se han liquidado y transferido ${reports.length} reembolsos por un total consolidado de ${formatClp(totalConsolidated)} (${paymentMethod === "cash" ? "Efectivo" : "Transferencia Bancaria"}).`,
+        type: "expense_approved",
+        link: "/gastos",
+      });
+    } catch (err) {
+      console.error("Error notificando liquidación múltiple:", err);
+    }
+
+    revalidatePath("/aprobaciones");
+    revalidatePath("/gastos");
+    revalidatePath("/fondos");
+    revalidatePath("/dashboard");
+
+    return { success: true };
+  } catch (err: any) {
+    console.error("Error en settleMultipleReimbursementsWithProof:", err);
+    return { success: false, error: err?.message || "Error al liquidar los reembolsos." };
   }
 }

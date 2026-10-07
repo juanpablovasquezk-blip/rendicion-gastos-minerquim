@@ -2,7 +2,7 @@
 
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { Check, X, Upload, FileText, CheckCircle2, Ban, Loader2 } from "lucide-react";
+import { Check, X, Upload, FileText, CheckCircle2, Ban, Loader2, CheckSquare, Square, Receipt } from "lucide-react";
 import {
   approveFundByAdmin,
   depositFundByGM,
@@ -10,6 +10,7 @@ import {
   approveExpenseItem,
   rejectExpenseItem,
   settleReimbursementWithProof,
+  settleMultipleReimbursementsWithProof,
 } from "./actions";
 import { formatClp, formatRut, formatDate } from "@/lib/format";
 import { compressImage } from "@/lib/image-compression";
@@ -1140,3 +1141,430 @@ export function SettleReimbursementModal({
     </>
   );
 }
+
+/* -------------------------------------------------------------------------
+   6. Modal de Liquidación Agrupada de Reembolsos por Colaborador
+   ------------------------------------------------------------------------- */
+export type CollaboratorReimbursementItem = {
+  id: string;
+  title: string;
+  created_at: string;
+  total_amount: number;
+  expenses_count: number;
+  supplier_name?: string | null;
+};
+
+export function GroupedSettleReimbursementModal({
+  solicitante,
+  collaboratorEmail,
+  reports,
+}: {
+  solicitante: string;
+  collaboratorEmail?: string | null;
+  reports: CollaboratorReimbursementItem[];
+}) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>(() => reports.map((r) => r.id));
+  const [paymentMethod, setPaymentMethod] = useState<"transfer" | "cash">("transfer");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [paymentNote, setPaymentNote] = useState("");
+  const [isDragging, setIsDragging] = useState(false);
+  const [isPending, setIsPending] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  // Sincronizar selección inicial al abrir
+  const handleOpen = () => {
+    setSelectedIds(reports.map((r) => r.id));
+    setSelectedFile(null);
+    setFileName(null);
+    setPreviewUrl(null);
+    setPaymentNote("");
+    setErrorMessage(null);
+    setOpen(true);
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.length === reports.length) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(reports.map((r) => r.id));
+    }
+  };
+
+  const toggleItem = (id: string) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+  };
+
+  // Calcular suma dinámica según los seleccionados
+  const selectedReports = reports.filter((r) => selectedIds.includes(r.id));
+  const selectedTotal = selectedReports.reduce((sum, r) => sum + r.total_amount, 0);
+
+  const handleSetFile = async (file: File) => {
+    let target = file;
+    if (file.type.startsWith("image/")) {
+      try {
+        target = await compressImage(file, { maxWidth: 1920, maxHeight: 1920, quality: 0.82 });
+      } catch (err) {
+        console.warn("Error comprimiendo comprobante de liquidación:", err);
+      }
+    }
+    setSelectedFile(target);
+    setFileName(target.name || "comprobante_transferencia.png");
+    setErrorMessage(null);
+    if (target.type.startsWith("image/")) {
+      setPreviewUrl(URL.createObjectURL(target));
+    } else {
+      setPreviewUrl(null);
+    }
+  };
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    if (paymentMethod !== "transfer") return;
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.startsWith("image/")) {
+        const file = items[i].getAsFile();
+        if (file) {
+          handleSetFile(file);
+          break;
+        }
+      }
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) handleSetFile(file);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (selectedIds.length === 0) {
+      setErrorMessage("Debes seleccionar al menos un reembolso para realizar la liquidación.");
+      return;
+    }
+
+    if (paymentMethod === "transfer" && !selectedFile) {
+      setErrorMessage("Debes adjuntar o pegar el comprobante de la transferencia bancaria.");
+      return;
+    }
+
+    setErrorMessage(null);
+    setIsPending(true);
+
+    try {
+      const fd = new FormData();
+      fd.set("report_ids", JSON.stringify(selectedIds));
+      fd.set("payment_method", paymentMethod);
+      fd.set("payment_note", paymentNote);
+      if (selectedFile) fd.set("proof_file", selectedFile);
+
+      const res = await settleMultipleReimbursementsWithProof(fd);
+      if (res.success) {
+        setOpen(false);
+        router.push("/aprobaciones?success=reembolsos_agrupados_pagados");
+        router.refresh();
+      } else {
+        setErrorMessage(res.error || "Error al liquidar los reembolsos.");
+        setIsPending(false);
+      }
+    } catch (err: any) {
+      setErrorMessage(err?.message || "Error al liquidar los reembolsos.");
+      setIsPending(false);
+    }
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={handleOpen}
+        className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-brand-600 active:scale-95"
+      >
+        <Receipt size={15} />
+        Pagar y Liquidar Reembolsos
+      </button>
+
+      {open && (
+        <div
+          onPaste={handlePaste}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-in fade-in"
+        >
+          <div className="w-full max-w-xl max-h-[90vh] flex flex-col rounded-2xl border border-border bg-surface shadow-2xl animate-in zoom-in-95">
+            {/* Cabecera modal */}
+            <div className="flex items-center justify-between border-b border-border p-5">
+              <div className="space-y-0.5">
+                <h2 className="text-base font-bold">Liquidar Reembolsos de {solicitante}</h2>
+                <p className="text-xs text-muted-foreground">
+                  Selecciona los reembolsos a pagar y registra el comprobante de pago consolidado.
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={isPending}
+                onClick={() => setOpen(false)}
+                className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Cuerpo con scroll */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-4">
+              {errorMessage && (
+                <div className="rounded-xl border border-rose-300 bg-rose-50 p-3 text-xs font-semibold text-rose-800 dark:border-rose-900 dark:bg-rose-950/50 dark:text-rose-300">
+                  {errorMessage}
+                </div>
+              )}
+
+              {/* Fila de Selección múltiple */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                    Reembolsos Pendientes ({reports.length})
+                  </span>
+                  <button
+                    type="button"
+                    onClick={toggleSelectAll}
+                    className="text-xs font-semibold text-primary hover:underline"
+                  >
+                    {selectedIds.length === reports.length ? "Desmarcar todos" : "Seleccionar todos"}
+                  </button>
+                </div>
+
+                <div className="divide-y divide-border rounded-xl border border-border bg-background">
+                  {reports.map((rep) => {
+                    const isChecked = selectedIds.includes(rep.id);
+                    return (
+                      <div
+                        key={rep.id}
+                        onClick={() => toggleItem(rep.id)}
+                        className={`flex items-center justify-between p-3 cursor-pointer transition select-none ${
+                          isChecked ? "bg-primary/5 dark:bg-primary/10" : "hover:bg-muted/40"
+                        }`}
+                      >
+                        <div className="flex items-start gap-3">
+                          <button
+                            type="button"
+                            className="mt-0.5 text-primary"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleItem(rep.id);
+                            }}
+                          >
+                            {isChecked ? (
+                              <CheckSquare size={18} className="text-primary" />
+                            ) : (
+                              <Square size={18} className="text-muted-foreground" />
+                            )}
+                          </button>
+                          <div>
+                            <p className="text-xs font-bold text-foreground">{rep.title}</p>
+                            <p className="text-[11px] text-muted-foreground">
+                              {formatDate(rep.created_at)} · {rep.expenses_count} {rep.expenses_count === 1 ? "gasto" : "gastos"} · Prov: {rep.supplier_name}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <span className={`text-sm font-bold ${isChecked ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground"}`}>
+                            {formatClp(rep.total_amount)}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Tarjeta de Resumen y Cálculo Dinámico */}
+              <div className="rounded-xl border border-blue-200 bg-blue-50/80 p-4 dark:border-blue-900/50 dark:bg-blue-950/30 flex items-center justify-between">
+                <div>
+                  <span className="block text-xs font-bold text-blue-900 dark:text-blue-300">
+                    Total Consolidado a Transferir
+                  </span>
+                  <span className="text-[11px] text-blue-700/90 dark:text-blue-400">
+                    {selectedIds.length} de {reports.length} informes seleccionados
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="text-xl font-extrabold text-blue-700 dark:text-blue-300">
+                    {formatClp(selectedTotal)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Formulario de Pago */}
+              <form id="grouped-settle-form" onSubmit={handleSubmit} className="space-y-4">
+                {/* Selector de Método de Pago */}
+                <div>
+                  <label className="block mb-1.5 text-xs font-semibold text-muted-foreground">
+                    Método de Entrega / Pago
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPaymentMethod("transfer");
+                        setErrorMessage(null);
+                      }}
+                      className={`rounded-xl border p-2.5 text-xs font-semibold transition ${
+                        paymentMethod === "transfer"
+                          ? "border-primary bg-brand-50/50 text-primary ring-2 ring-primary/20 dark:bg-brand-950/30"
+                          : "border-border bg-background text-muted-foreground"
+                      }`}
+                    >
+                      🏦 Transferencia Bancaria
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPaymentMethod("cash");
+                        setErrorMessage(null);
+                      }}
+                      className={`rounded-xl border p-2.5 text-xs font-semibold transition ${
+                        paymentMethod === "cash"
+                          ? "border-primary bg-brand-50/50 text-primary ring-2 ring-primary/20 dark:bg-brand-950/30"
+                          : "border-border bg-background text-muted-foreground"
+                      }`}
+                    >
+                      💵 Pago en Efectivo
+                    </button>
+                  </div>
+                </div>
+
+                {/* Subida de comprobante solo si es transferencia */}
+                {paymentMethod === "transfer" ? (
+                  <div>
+                    <label className="block mb-1.5 text-xs font-semibold text-muted-foreground">
+                      Comprobante de Transferencia Consolidada (Obligatorio) *
+                    </label>
+                    <input
+                      ref={fileRef}
+                      type="file"
+                      accept="image/*,application/pdf"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) handleSetFile(f);
+                      }}
+                      className="hidden"
+                    />
+
+                    {!fileName ? (
+                      <div
+                        onClick={() => fileRef.current?.click()}
+                        onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                        onDragLeave={() => setIsDragging(false)}
+                        onDrop={handleDrop}
+                        className={`cursor-pointer w-full flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-4 text-center transition ${
+                          isDragging
+                            ? "border-primary bg-brand-50 dark:bg-brand-950/40"
+                            : "border-primary/50 bg-brand-50/20 hover:bg-brand-50/50 dark:bg-brand-950/20"
+                        }`}
+                      >
+                        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-500 text-white shadow-sm">
+                          <Upload size={15} />
+                        </span>
+                        <span className="text-xs font-bold text-foreground">
+                          Haz clic para adjuntar comprobante o arrastra aquí
+                        </span>
+                        <span className="rounded-md bg-muted px-2 py-0.5 text-[10px] font-semibold text-primary">
+                          💡 Tip: Puedes presionar Ctrl + V para pegar la captura
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-3 rounded-xl border border-border bg-background p-3 text-xs">
+                        {previewUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={previewUrl} alt="Comprobante" className="h-12 w-12 rounded-lg object-cover border border-border shrink-0" />
+                        ) : (
+                          <FileText size={24} className="text-primary shrink-0" />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-emerald-600 dark:text-emerald-400">✓ Comprobante listo</p>
+                          <p className="truncate text-muted-foreground">{fileName}</p>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={isPending}
+                          onClick={() => {
+                            setSelectedFile(null);
+                            setFileName(null);
+                            setPreviewUrl(null);
+                          }}
+                          className="rounded-lg p-1.5 text-muted-foreground transition hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/30"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
+                    ℹ️ Se registrará la entrega en efectivo por <strong>{formatClp(selectedTotal)}</strong>. Se notificará directamente a {solicitante} para su confirmación.
+                  </div>
+                )}
+
+                {/* Nota u Observación */}
+                <label className="block">
+                  <span className="mb-1 block text-xs font-semibold text-muted-foreground">
+                    Nota / N° Operación (Opcional)
+                  </span>
+                  <input
+                    type="text"
+                    value={paymentNote}
+                    onChange={(e) => setPaymentNote(e.target.value)}
+                    disabled={isPending}
+                    placeholder={paymentMethod === "cash" ? "Ej: Entregado en efectivo en oficina central" : "Ej: Transf. Banco Santander N° 9812401"}
+                    className="w-full rounded-xl border border-border bg-background px-3 py-2 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-brand-200 disabled:opacity-60"
+                  />
+                </label>
+              </form>
+            </div>
+
+            {/* Pie del modal */}
+            <div className="flex items-center justify-between border-t border-border p-4 bg-muted/20">
+              <div className="text-xs text-muted-foreground">
+                Total a pagar: <strong className="text-foreground">{formatClp(selectedTotal)}</strong>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={isPending}
+                  onClick={() => setOpen(false)}
+                  className="rounded-xl border border-border px-3.5 py-2 text-xs font-semibold hover:bg-muted disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  form="grouped-settle-form"
+                  type="submit"
+                  disabled={isPending || selectedIds.length === 0 || (paymentMethod === "transfer" && !selectedFile)}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-white shadow transition hover:bg-brand-600 disabled:opacity-50"
+                >
+                  {isPending ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" />
+                      Registrando Pago...
+                    </>
+                  ) : (
+                    `Confirmar Pago (${selectedIds.length})`
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+

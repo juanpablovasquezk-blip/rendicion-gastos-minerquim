@@ -1,7 +1,7 @@
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { formatClp, formatDate, FUND_STATUS_CONFIG, REPORT_STATUS_CONFIG } from "@/lib/format";
-import { ApproveFundModal, DepositFundModal, RejectFundModal, ExpenseApprovalItem, SettleReimbursementModal } from "./approval-components";
+import { ApproveFundModal, DepositFundModal, RejectFundModal, ExpenseApprovalItem, SettleReimbursementModal, GroupedSettleReimbursementModal } from "./approval-components";
 import { resolveReport } from "./actions";
 import { ClipboardCheck, Wallet, Receipt, History, AlertCircle, CheckCircle2 } from "lucide-react";
 import { getSignedFileUrl } from "@/lib/supabase/storage";
@@ -90,6 +90,55 @@ export default async function AprobacionesPage({
   const reembolsosPorPagarGM = submittedReports?.filter(
     (r) => r.status === "approved" && r.report_type === "reimbursement"
   ) ?? [];
+
+  // Agrupar reembolsos aprobados por colaborador para pago individual o en lote
+  const groupedReimbursementsByUser = (reembolsosPorPagarGM || []).reduce<
+    Record<
+      string,
+      {
+        user_id: string;
+        user_profile: { full_name?: string | null; email?: string | null; phone?: string | null } | null;
+        total_amount: number;
+        reports: Array<{
+          id: string;
+          title: string;
+          created_at: string;
+          total_amount: number;
+          expenses_count: number;
+          supplier_name?: string | null;
+        }>;
+      }
+    >
+  >((acc, rep) => {
+    const uid = rep.user_id;
+    const repAmount =
+      Number(rep.total_amount) > 0
+        ? Number(rep.total_amount)
+        : (rep.expenses || []).reduce(
+            (sum: number, exp: { total_amount?: number | null }) => sum + Number(exp.total_amount || 0),
+            0
+          );
+    if (!acc[uid]) {
+      acc[uid] = {
+        user_id: uid,
+        user_profile: rep.user_profile,
+        total_amount: 0,
+        reports: [],
+      };
+    }
+    acc[uid].total_amount += repAmount;
+    acc[uid].reports.push({
+      id: rep.id,
+      title: rep.title,
+      created_at: rep.created_at,
+      total_amount: repAmount,
+      expenses_count: rep.expenses?.length || 0,
+      supplier_name: rep.expenses?.[0]?.supplier_name || "Varios",
+    });
+    return acc;
+  }, {});
+
+  const groupedReimbursementsList = Object.values(groupedReimbursementsByUser);
 
   const totalRendicionesCount = rendicionesPorRevisar.length + reembolsosPorPagarGM.length;
 
@@ -442,7 +491,7 @@ export default async function AprobacionesPage({
             )}
           </div>
 
-          {/* SECCIÓN B: Reembolsos Aprobados Listos para Pago (Gerencia General) */}
+          {/* SECCIÓN B: Reembolsos Aprobados Listos para Pago (Gerencia General) - Agrupados por Colaborador */}
           {isGerenciaGeneral && (
             <div className="rounded-2xl border border-border bg-surface p-5 shadow-sm space-y-4">
               <div className="flex items-center justify-between border-b border-border pb-3">
@@ -452,47 +501,67 @@ export default async function AprobacionesPage({
                   </span>
                   Reembolsos Aprobados por Transferir / Pagar — Gerencia General ({reembolsosPorPagarGM.length})
                 </h2>
-                <span className="text-xs text-muted-foreground">Requiere comprobante de transferencia o efectivo</span>
+                <span className="text-xs text-muted-foreground">
+                  Agrupados por colaborador · Permite liquidar por separado o en lote
+                </span>
               </div>
 
-              {reembolsosPorPagarGM.length === 0 ? (
+              {groupedReimbursementsList.length === 0 ? (
                 <p className="py-6 text-center text-xs text-muted-foreground">
                   No hay reembolsos aprobados esperando pago en este momento.
                 </p>
               ) : (
                 <div className="divide-y divide-border">
-                  {reembolsosPorPagarGM.map((rep) => {
-                    const repAmount = Number(rep.total_amount) > 0 ? Number(rep.total_amount) : (rep.expenses || []).reduce((acc: number, exp: { total_amount?: number | null }) => acc + Number(exp.total_amount || 0), 0);
+                  {groupedReimbursementsList.map((group) => {
+                    const fullName = group.user_profile?.full_name || group.user_profile?.email || "Colaborador";
+                    const initial = fullName.charAt(0).toUpperCase();
+
                     return (
-                      <div key={rep.id} className="py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="space-y-1">
+                      <div key={group.user_id} className="py-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="space-y-2 max-w-xl">
                           <div className="flex items-center gap-2">
-                            <span className="font-bold text-sm text-foreground">
-                              {rep.user_profile?.full_name || rep.user_profile?.email}
+                            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-100 text-blue-700 font-bold text-xs dark:bg-blue-950 dark:text-blue-300">
+                              {initial}
                             </span>
+                            <span className="font-bold text-sm text-foreground">
+                              {fullName}
+                            </span>
+                            {group.user_profile?.email && (
+                              <span className="text-xs text-muted-foreground">
+                                · {group.user_profile.email}
+                              </span>
+                            )}
                             <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-bold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                              ✓ Aprobado por Operaciones
+                              ✓ {group.reports.length} {group.reports.length === 1 ? "reembolso aprobado" : "reembolsos aprobados"}
                             </span>
                           </div>
-                          <p className="text-xs font-semibold text-foreground">{rep.title}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {rep.expenses?.length || 0} gastos incluidos · Proveedor: {rep.expenses?.[0]?.supplier_name || "Varios"}
-                          </p>
+
+                          {/* Listado resumido de los reembolsos incluidos de esta persona */}
+                          <div className="pl-9 space-y-1">
+                            {group.reports.map((r) => (
+                              <div key={r.id} className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                                <span className="text-foreground font-medium">• {r.title}</span>
+                                <span className="font-semibold text-blue-600 dark:text-blue-400">({formatClp(r.total_amount)})</span>
+                                <span className="text-[11px] opacity-75">· Prov: {r.supplier_name}</span>
+                              </div>
+                            ))}
+                          </div>
                         </div>
 
-                        <div className="flex flex-col sm:items-end gap-3">
+                        <div className="flex flex-col sm:items-end gap-3 shrink-0">
                           <div className="text-left sm:text-right">
-                            <span className="block text-[11px] uppercase text-muted-foreground">Monto a Devolver</span>
-                            <span className="text-lg font-bold text-blue-600 dark:text-blue-400">
-                              {formatClp(repAmount)}
+                            <span className="block text-[11px] uppercase text-muted-foreground font-semibold">
+                              Monto Total Acumulado
+                            </span>
+                            <span className="text-xl font-extrabold text-blue-600 dark:text-blue-400">
+                              {formatClp(group.total_amount)}
                             </span>
                           </div>
 
-                          <SettleReimbursementModal
-                            reportId={rep.id}
-                            solicitante={rep.user_profile?.full_name || rep.user_profile?.email}
-                            amount={repAmount}
-                            title={rep.title}
+                          <GroupedSettleReimbursementModal
+                            solicitante={fullName}
+                            collaboratorEmail={group.user_profile?.email}
+                            reports={group.reports}
                           />
                         </div>
                       </div>
