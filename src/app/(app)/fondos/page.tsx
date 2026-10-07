@@ -1,5 +1,6 @@
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { formatClp, formatDate, FUND_STATUS_CONFIG, REPORT_STATUS_CONFIG } from "@/lib/format";
 import { NewFundModal } from "./new-fund-modal";
 import { CloseFundModal } from "./close-fund-modal";
@@ -21,6 +22,38 @@ export default async function FondosPage({
   const isGeneralManager = profile.role === "general_manager";
   const isManagement = profile.role === "admin" || profile.role === "general_manager" || profile.role === "manager";
   const currentView = isManagement ? (view || "personal") : "personal";
+
+  // Auto-recuperar reportes de excedente de fondo que hayan quedado como borrador
+  try {
+    const adminSb = createAdminClient();
+    const { data: orphanSurplusDrafts } = await adminSb
+      .from("expense_reports")
+      .select("id, total_amount, expenses(id, total_amount)")
+      .eq("user_id", profile.id)
+      .eq("report_type", "reimbursement")
+      .eq("status", "draft")
+      .ilike("title", "Reembolso por Excedente de Fondo%");
+
+    if (orphanSurplusDrafts && orphanSurplusDrafts.length > 0) {
+      for (const draft of orphanSurplusDrafts) {
+        const expSum = (draft.expenses || []).reduce((acc, e) => acc + Number(e.total_amount || 0), 0);
+        const targetAmount = expSum > 0 ? expSum : Number(draft.total_amount || 0);
+        await adminSb.from("expenses").update({ status: "approved" }).eq("report_id", draft.id);
+        await adminSb
+          .from("expense_reports")
+          .update({
+            status: "approved",
+            approval_stage: "done",
+            total_amount: targetAmount,
+            approved_amount: targetAmount,
+            submitted_at: new Date().toISOString(),
+          })
+          .eq("id", draft.id);
+      }
+    }
+  } catch (healErr) {
+    console.error("Auto-heal surplus draft reports error:", healErr);
+  }
 
   const sb = await createClient();
 
@@ -72,11 +105,18 @@ export default async function FondosPage({
   const totalAvailableBalance = activeFunds.reduce((acc, f) => acc + Number(f.current_balance || 0), 0);
   const totalPendingAmount = requestedFunds.reduce((acc, f) => acc + Number(f.requested_amount || 0), 0);
 
+  // Helper para obtener monto real de un informe (incluso si total_amount del informe no fue recalculado aún)
+  const getReportTotal = (r: { total_amount?: number | null; expenses?: { total_amount?: number | null }[] | null }) => {
+    const rawTotal = Number(r.total_amount || 0);
+    if (rawTotal > 0) return rawTotal;
+    return (r.expenses || []).reduce((sum, e) => sum + Number(e.total_amount || 0), 0);
+  };
+
   // Calcular reembolsos a favor de los colaboradores
   const pendingReimbursements = reimbursements?.filter((r) => r.status === "submitted" || r.status === "partially_approved") ?? [];
   const approvedReimbursements = reimbursements?.filter((r) => r.status === "approved") ?? [];
   const totalReimbursementOwed = [...pendingReimbursements, ...approvedReimbursements].reduce(
-    (acc, r) => acc + Number(r.total_amount || 0),
+    (acc, r) => acc + getReportTotal(r),
     0
   );
 
@@ -523,7 +563,7 @@ export default async function FondosPage({
                           Monto a Devolver
                         </span>
                         <span className="text-lg font-bold text-foreground">
-                          {formatClp(rep.total_amount)}
+                          {formatClp(getReportTotal(rep))}
                         </span>
                       </div>
 

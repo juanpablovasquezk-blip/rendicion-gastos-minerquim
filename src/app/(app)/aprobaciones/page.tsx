@@ -461,40 +461,43 @@ export default async function AprobacionesPage({
                 </p>
               ) : (
                 <div className="divide-y divide-border">
-                  {reembolsosPorPagarGM.map((rep) => (
-                    <div key={rep.id} className="py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-sm text-foreground">
-                            {rep.user_profile?.full_name || rep.user_profile?.email}
-                          </span>
-                          <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-bold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                            ✓ Aprobado por Operaciones
-                          </span>
-                        </div>
-                        <p className="text-xs font-semibold text-foreground">{rep.title}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {rep.expenses?.length || 0} gastos incluidos · Proveedor: {rep.expenses?.[0]?.supplier_name || "Varios"}
-                        </p>
-                      </div>
-
-                      <div className="flex flex-col sm:items-end gap-3">
-                        <div className="text-left sm:text-right">
-                          <span className="block text-[11px] uppercase text-muted-foreground">Monto a Devolver</span>
-                          <span className="text-lg font-bold text-blue-600 dark:text-blue-400">
-                            {formatClp(rep.total_amount)}
-                          </span>
+                  {reembolsosPorPagarGM.map((rep) => {
+                    const repAmount = Number(rep.total_amount) > 0 ? Number(rep.total_amount) : (rep.expenses || []).reduce((acc: number, exp: { total_amount?: number | null }) => acc + Number(exp.total_amount || 0), 0);
+                    return (
+                      <div key={rep.id} className="py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-sm text-foreground">
+                              {rep.user_profile?.full_name || rep.user_profile?.email}
+                            </span>
+                            <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-bold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                              ✓ Aprobado por Operaciones
+                            </span>
+                          </div>
+                          <p className="text-xs font-semibold text-foreground">{rep.title}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {rep.expenses?.length || 0} gastos incluidos · Proveedor: {rep.expenses?.[0]?.supplier_name || "Varios"}
+                          </p>
                         </div>
 
-                        <SettleReimbursementModal
-                          reportId={rep.id}
-                          solicitante={rep.user_profile?.full_name || rep.user_profile?.email}
-                          amount={rep.total_amount}
-                          title={rep.title}
-                        />
+                        <div className="flex flex-col sm:items-end gap-3">
+                          <div className="text-left sm:text-right">
+                            <span className="block text-[11px] uppercase text-muted-foreground">Monto a Devolver</span>
+                            <span className="text-lg font-bold text-blue-600 dark:text-blue-400">
+                              {formatClp(repAmount)}
+                            </span>
+                          </div>
+
+                          <SettleReimbursementModal
+                            reportId={rep.id}
+                            solicitante={rep.user_profile?.full_name || rep.user_profile?.email}
+                            amount={repAmount}
+                            title={rep.title}
+                          />
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

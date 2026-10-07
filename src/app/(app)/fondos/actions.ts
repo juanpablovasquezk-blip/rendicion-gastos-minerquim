@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { sendNotification, notifyRole } from "@/lib/notifications/service";
 import { formatClp } from "@/lib/format";
 
@@ -224,6 +225,7 @@ export async function closeFundAction(f: FormData): Promise<CloseFundResult> {
     }
 
     const balance = Number(fund.current_balance || 0);
+    const adminSb = createAdminClient();
 
     // =========================================================================
     // CASO 1: SALDO NEGATIVO (El colaborador gastó más de lo entregado)
@@ -231,8 +233,8 @@ export async function closeFundAction(f: FormData): Promise<CloseFundResult> {
     if (balance < 0) {
       const deficit = Math.abs(balance);
 
-      // Crear informe de reembolso a favor del colaborador listo para pago por GM
-      const { data: reimbursementReport, error: repErr } = await sb
+      // 1. Crear informe de reembolso a favor del colaborador listo para pago por GM
+      const { data: reimbursementReport, error: repErr } = await adminSb
         .from("expense_reports")
         .insert({
           user_id: fund.user_id,
@@ -242,6 +244,7 @@ export async function closeFundAction(f: FormData): Promise<CloseFundResult> {
           approval_stage: "done",
           total_amount: deficit,
           approved_amount: deficit,
+          submitted_at: new Date().toISOString(),
         })
         .select("id")
         .single();
@@ -251,7 +254,7 @@ export async function closeFundAction(f: FormData): Promise<CloseFundResult> {
       }
 
       // Buscar configuración de empresa y área de referencia para el gasto
-      const { data: sampleExp } = await sb
+      const { data: sampleExp } = await adminSb
         .from("expenses")
         .select("company_id, department_id, category_id, receipt_type_id")
         .eq("user_id", fund.user_id)
@@ -259,12 +262,13 @@ export async function closeFundAction(f: FormData): Promise<CloseFundResult> {
         .limit(1)
         .maybeSingle();
 
-      const { data: defaultCompany } = await sb.from("companies").select("id").limit(1).single();
-      const { data: defaultDept } = await sb.from("departments").select("id").limit(1).single();
-      const { data: defaultCat } = await sb.from("categories").select("id").limit(1).single();
-      const { data: defaultReceiptType } = await sb.from("receipt_types").select("id").limit(1).single();
+      const { data: defaultCompany } = await adminSb.from("companies").select("id").limit(1).single();
+      const { data: defaultDept } = await adminSb.from("departments").select("id").limit(1).single();
+      const { data: defaultCat } = await adminSb.from("categories").select("id").limit(1).single();
+      const { data: defaultReceiptType } = await adminSb.from("receipt_types").select("id").limit(1).single();
 
-      await sb.from("expenses").insert({
+      // 2. Insertar gasto aprobado asociado
+      await adminSb.from("expenses").insert({
         report_id: reimbursementReport.id,
         user_id: fund.user_id,
         company_id: sampleExp?.company_id || defaultCompany?.id,
@@ -280,8 +284,19 @@ export async function closeFundAction(f: FormData): Promise<CloseFundResult> {
         status: "approved",
       });
 
-      // Cerrar el fondo
-      const { error: closeErr } = await sb
+      // 3. Forzar aprobación y total exacto en el informe
+      await adminSb
+        .from("expense_reports")
+        .update({
+          status: "approved",
+          approval_stage: "done",
+          total_amount: deficit,
+          approved_amount: deficit,
+        })
+        .eq("id", reimbursementReport.id);
+
+      // 4. Cerrar el fondo
+      const { error: closeErr } = await adminSb
         .from("cash_advances")
         .update({ status: "closed" })
         .eq("id", fundId);
@@ -291,7 +306,7 @@ export async function closeFundAction(f: FormData): Promise<CloseFundResult> {
       }
 
       // Registrar historial de auditoría
-      await sb.from("approval_history").insert({
+      await adminSb.from("approval_history").insert({
         fund_id: fundId,
         subject_user_id: fund.user_id,
         approver_id: profile.id,
@@ -319,7 +334,7 @@ export async function closeFundAction(f: FormData): Promise<CloseFundResult> {
       let nettedAmount = 0;
 
       // 1. Buscar si el colaborador tiene reembolsos pendientes a su favor para netear
-      const { data: userReimbursements } = await sb
+      const { data: userReimbursements } = await adminSb
         .from("expense_reports")
         .select("id, title, total_amount, status")
         .eq("user_id", fund.user_id)
@@ -331,12 +346,12 @@ export async function closeFundAction(f: FormData): Promise<CloseFundResult> {
         const rAmount = Number(r.total_amount || 0);
         if (remaining >= rAmount && rAmount > 0) {
           // Liquidar el reembolso automáticamente
-          await sb
+          await adminSb
             .from("expense_reports")
             .update({ status: "settled", approval_stage: "done" })
             .eq("id", r.id);
 
-          await sb.from("approval_history").insert({
+          await adminSb.from("approval_history").insert({
             report_id: r.id,
             subject_user_id: fund.user_id,
             approver_id: profile.id,
@@ -353,14 +368,14 @@ export async function closeFundAction(f: FormData): Promise<CloseFundResult> {
       if (remaining > 0) {
         if (resolutionMode === "net_and_credit") {
           // Guardar como crédito remanente para la próxima solicitud de fondo
-          const { data: p } = await sb
+          const { data: p } = await adminSb
             .from("profiles")
             .select("credit_balance")
             .eq("id", fund.user_id)
             .single();
 
           const currentCredit = Number(p?.credit_balance || 0);
-          await sb
+          await adminSb
             .from("profiles")
             .update({ credit_balance: currentCredit + remaining })
             .eq("id", fund.user_id);
@@ -368,7 +383,7 @@ export async function closeFundAction(f: FormData): Promise<CloseFundResult> {
       }
 
       // 3. Cerrar el fondo
-      const { error: closeErr } = await sb
+      const { error: closeErr } = await adminSb
         .from("cash_advances")
         .update({ status: "closed" })
         .eq("id", fundId);
