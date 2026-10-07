@@ -69,7 +69,7 @@ export async function sendNotification({
         console.error("[Notification Service] Error buscando perfil:", profErr);
       } else if (profile?.phone) {
         console.log(`[Notification Service] Enviando WhatsApp a ${profile.full_name} (${profile.phone})`);
-        const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://rendicion-minerquim.cl";
+        const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "https://rendicion-minerquim.cl").replace(/\/+$/, "");
         const whatsappMsg = `🔔 *Minerquim Rendiciones*\n\n*${title}*\n${message}\n\n👉 Ver en plataforma: ${appUrl}${link}`;
         await sendWhatsAppNotification(profile.phone, whatsappMsg);
       } else {
