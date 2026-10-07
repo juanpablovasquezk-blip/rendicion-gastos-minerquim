@@ -97,35 +97,43 @@ export async function approveFundByAdmin(f: FormData) {
   redirect("/aprobaciones?success=fondo_aprobado_operaciones");
 }
 
-/** Gerencia General (general_manager) registra el depósito bancario con comprobante y activa el fondo */
+/** Gerencia General (general_manager) registra el depósito bancario o entrega en efectivo y activa el fondo */
 export async function depositFundByGM(f: FormData) {
   const profile = await requireRole("general_manager", "admin");
   const fundId = str(f, "fund_id");
+  const paymentMethod = str(f, "payment_method") || "transfer"; // 'transfer' | 'cash'
   const depositNote = str(f, "deposit_note");
   const depositFile = f.get("deposit_file") as File | null;
 
   if (!fundId) throw new Error("ID de fondo inválido.");
-  if (!depositFile || depositFile.size === 0) {
-    throw new Error("Debes adjuntar el comprobante o foto de la transferencia bancaria.");
-  }
 
   const sb = await createClient();
 
-  // 1. Subir comprobante al bucket 'deposits'
-  const fileExt = depositFile.name.split(".").pop() || "jpg";
-  const fileName = `${fundId}/${Date.now()}_comprobante.${fileExt}`;
-  const bytes = await depositFile.arrayBuffer();
-  const buffer = Buffer.from(bytes);
+  let fileName: string | null = null;
 
-  const { error: uploadErr } = await sb.storage
-    .from("deposits")
-    .upload(fileName, buffer, {
-      contentType: depositFile.type || "image/jpeg",
-      upsert: true,
-    });
+  // Si es transferencia, el comprobante es obligatorio. Si es efectivo, es opcional (ej: recibo firmado).
+  if (paymentMethod === "transfer") {
+    if (!depositFile || depositFile.size === 0) {
+      throw new Error("Debes adjuntar el comprobante o captura de la transferencia bancaria.");
+    }
+  }
 
-  if (uploadErr) {
-    throw new Error(`Error al subir comprobante a Storage: ${uploadErr.message}`);
+  if (depositFile && depositFile.size > 0) {
+    const fileExt = depositFile.name.split(".").pop() || "jpg";
+    fileName = `${fundId}/${Date.now()}_comprobante.${fileExt}`;
+    const bytes = await depositFile.arrayBuffer();
+    const buffer = Buffer.from(bytes);
+
+    const { error: uploadErr } = await sb.storage
+      .from("deposits")
+      .upload(fileName, buffer, {
+        contentType: depositFile.type || "image/jpeg",
+        upsert: true,
+      });
+
+    if (uploadErr) {
+      throw new Error(`Error al subir comprobante a Storage: ${uploadErr.message}`);
+    }
   }
 
   // 2. Obtener fondo para saber monto y dueño
@@ -148,7 +156,7 @@ export async function depositFundByGM(f: FormData) {
       status: "active",
       approval_stage: "done",
       deposit_receipt_path: fileName,
-      deposit_note: depositNote || null,
+      deposit_note: depositNote || (paymentMethod === "cash" ? "Entrega de dinero en efectivo" : null),
       initial_amount: amountToActivate,
       deposited_by: profile.id,
       deposited_at: new Date().toISOString(),
@@ -161,25 +169,27 @@ export async function depositFundByGM(f: FormData) {
   }
 
   // Registrar en historial
+  const methodLabel = paymentMethod === "cash" ? "Entrega en Efectivo" : "Transferencia Bancaria";
   await sb.from("approval_history").insert({
     fund_id: fundId,
     subject_user_id: fund.user_id,
     approver_id: profile.id,
     action: "deposited",
-    comments: `Depósito verificado y fondo activado. ${depositNote ? `Nota: ${depositNote}` : ""}`,
+    comments: `Fondo entregado y activado (${methodLabel}). ${depositNote ? `Nota: ${depositNote}` : ""}`,
   });
 
-  // Notificar al colaborador que los fondos fueron transferidos y están activos
+  // Notificar al colaborador que los fondos fueron transferidos/entregados y están activos
   try {
+    const actionDesc = paymentMethod === "cash" ? "la entrega de dinero en efectivo" : "la transferencia bancaria";
     await sendNotification({
       userId: fund.user_id,
-      title: "¡Fondo Transferido y Activo!",
-      message: `Se ha verificado la transferencia por ${formatClp(amountToActivate)} para "${fund.purpose}". Ya puedes comenzar a rendir gastos.`,
+      title: "¡Fondo Entregado y Activo!",
+      message: `Se ha verificado ${actionDesc} por ${formatClp(amountToActivate)} para "${fund.purpose}". Ya puedes comenzar a rendir gastos.`,
       type: "fund_deposited",
       link: "/fondos",
     });
   } catch (err) {
-    console.error("Error notificando depósito al empleado:", err);
+    console.error("Error notificando entrega de fondo al empleado:", err);
   }
 
   revalidatePath("/aprobaciones");

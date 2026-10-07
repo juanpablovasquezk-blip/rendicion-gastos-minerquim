@@ -186,6 +186,7 @@ export function DepositFundModal({
   companyName: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<"transfer" | "cash">("transfer");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -237,8 +238,8 @@ export function DepositFundModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedFile) {
-      setErrorMessage("Debes adjuntar o pegar el comprobante de la transferencia.");
+    if (paymentMethod === "transfer" && !selectedFile) {
+      setErrorMessage("Debes adjuntar o pegar el comprobante de la transferencia bancaria.");
       return;
     }
 
@@ -248,8 +249,11 @@ export function DepositFundModal({
     try {
       const fd = new FormData();
       fd.set("fund_id", fundId);
+      fd.set("payment_method", paymentMethod);
       fd.set("deposit_note", depositNote);
-      fd.set("deposit_file", selectedFile);
+      if (selectedFile) {
+        fd.set("deposit_file", selectedFile);
+      }
 
       await depositFundByGM(fd);
       setOpen(false);
@@ -274,7 +278,7 @@ export function DepositFundModal({
         className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-brand-600 active:scale-95"
       >
         <Upload size={16} strokeWidth={2.5} />
-        Registrar Depósito y Activar
+        Registrar Depósito / Entrega
       </button>
 
       {open && (
@@ -285,7 +289,7 @@ export function DepositFundModal({
           <div className="w-full max-w-lg rounded-2xl border border-border bg-surface p-6 shadow-2xl animate-in zoom-in-95">
             <div className="flex items-center justify-between border-b border-border pb-3">
               <div>
-                <h2 className="text-base font-bold">Registrar Transferencia / Depósito</h2>
+                <h2 className="text-base font-bold">Entrega / Depósito de Fondo</h2>
                 <p className="text-xs text-muted-foreground">Gerencia General / Operaciones</p>
               </div>
               <button
@@ -306,17 +310,56 @@ export function DepositFundModal({
             <div className="mt-4 rounded-xl border border-border bg-background p-3.5 space-y-1 text-xs text-muted-foreground">
               <p><strong className="text-foreground">Destinatario:</strong> {solicitante}</p>
               <p><strong className="text-foreground">Empresa:</strong> {companyName}</p>
-              <p><strong className="text-foreground">Monto a Transferir:</strong> <span className="text-primary font-bold text-sm">{formatClp(amount)}</span></p>
+              <p><strong className="text-foreground">Monto a Entregar:</strong> <span className="text-primary font-bold text-sm">{formatClp(amount)}</span></p>
               <p><strong className="text-foreground">Motivo:</strong> {purpose}</p>
             </div>
 
             <form onSubmit={handleSubmit} className="mt-4 space-y-4">
               <input type="hidden" name="fund_id" value={fundId} />
 
+              {/* Selector de Modalidad de Entrega */}
+              <div>
+                <label className="block mb-1.5 text-xs font-semibold text-muted-foreground">
+                  Modalidad de Entrega del Dinero *
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPaymentMethod("transfer");
+                      setErrorMessage(null);
+                    }}
+                    className={`rounded-xl border p-2.5 text-xs font-semibold transition ${
+                      paymentMethod === "transfer"
+                        ? "border-primary bg-brand-50/50 text-primary ring-2 ring-primary/20 dark:bg-brand-950/30"
+                        : "border-border bg-background text-muted-foreground"
+                    }`}
+                  >
+                    🏦 Transferencia Bancaria
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPaymentMethod("cash");
+                      setErrorMessage(null);
+                    }}
+                    className={`rounded-xl border p-2.5 text-xs font-semibold transition ${
+                      paymentMethod === "cash"
+                        ? "border-primary bg-brand-50/50 text-primary ring-2 ring-primary/20 dark:bg-brand-950/30"
+                        : "border-border bg-background text-muted-foreground"
+                    }`}
+                  >
+                    💵 Entrega en Efectivo
+                  </button>
+                </div>
+              </div>
+
               {/* Subida / Pegado de comprobante */}
               <div>
                 <label className="block mb-1.5 text-xs font-semibold text-muted-foreground">
-                  Comprobante de Transferencia / Depósito (Obligatorio) *
+                  {paymentMethod === "transfer"
+                    ? "Comprobante de Transferencia / Depósito (Obligatorio) *"
+                    : "Recibo o Firma de Entrega en Efectivo (Opcional)"}
                 </label>
                 <input
                   ref={fileRef}
@@ -335,32 +378,34 @@ export function DepositFundModal({
                     onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
                     onDragLeave={() => setIsDragging(false)}
                     onDrop={handleDrop}
-                    className={`cursor-pointer w-full flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-6 text-center transition ${
+                    className={`cursor-pointer w-full flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-5 text-center transition ${
                       isDragging
                         ? "border-primary bg-brand-50 dark:bg-brand-950/40"
                         : "border-primary/50 bg-brand-50/20 hover:bg-brand-50/50 dark:bg-brand-950/20"
                     }`}
                   >
-                    <span className="flex h-10 w-10 items-center justify-center rounded-full bg-brand-500 text-white shadow-sm">
-                      <Upload size={18} />
+                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-500 text-white shadow-sm">
+                      <Upload size={16} />
                     </span>
                     <span className="text-xs font-bold text-foreground">
-                      Haz clic para adjuntar o arrastra aquí
+                      {paymentMethod === "transfer"
+                        ? "Haz clic para adjuntar comprobante o arrastra aquí"
+                        : "Haz clic para adjuntar recibo/comprobante (opcional)"}
                     </span>
                     <span className="rounded-md bg-muted px-2 py-0.5 text-[11px] font-semibold text-primary">
-                      💡 Tip: Puedes presionar Ctrl + V para pegar una captura de pantalla directamente
+                      💡 Tip: Puedes presionar Ctrl + V para pegar una captura de pantalla
                     </span>
                   </div>
                 ) : (
                   <div className="flex items-center gap-3 rounded-xl border border-border bg-background p-3 text-xs">
                     {previewUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={previewUrl} alt="Comprobante" className="h-14 w-14 rounded-lg object-cover border border-border shrink-0" />
+                      <img src={previewUrl} alt="Comprobante" className="h-12 w-12 rounded-lg object-cover border border-border shrink-0" />
                     ) : (
-                      <FileText size={28} className="text-primary shrink-0" />
+                      <FileText size={24} className="text-primary shrink-0" />
                     )}
                     <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-emerald-600 dark:text-emerald-400">✓ Comprobante listo</p>
+                      <p className="font-semibold text-emerald-600 dark:text-emerald-400">✓ Comprobante cargado</p>
                       <p className="truncate text-muted-foreground">{fileName}</p>
                     </div>
                     <button
@@ -382,7 +427,9 @@ export function DepositFundModal({
 
               <label className="block">
                 <span className="mb-1 block text-xs font-semibold text-muted-foreground">
-                  N° de Operación o Nota Bancaria (Opcional)
+                  {paymentMethod === "transfer"
+                    ? "N° de Operación o Nota Bancaria (Opcional)"
+                    : "Detalle o Nota de Entrega en Efectivo (Opcional)"}
                 </span>
                 <input
                   name="deposit_note"
@@ -390,7 +437,11 @@ export function DepositFundModal({
                   value={depositNote}
                   onChange={(e) => setDepositNote(e.target.value)}
                   disabled={isPending}
-                  placeholder="Ej: Transf. Santander N° 98402931"
+                  placeholder={
+                    paymentMethod === "transfer"
+                      ? "Ej: Transf. Banco Santander N° 98402931"
+                      : "Ej: Dinero entregado en sobre en oficina a Juan Pablo"
+                  }
                   className="w-full rounded-xl border border-border bg-background px-3 py-2 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-brand-200 disabled:opacity-60"
                 />
               </label>
@@ -406,16 +457,18 @@ export function DepositFundModal({
                 </button>
                 <button
                   type="submit"
-                  disabled={!selectedFile || isPending}
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-white shadow transition hover:bg-brand-600 disabled:opacity-50"
+                  disabled={(paymentMethod === "transfer" && !selectedFile) || isPending}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-white shadow transition hover:bg-brand-600 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isPending ? (
                     <>
                       <Loader2 size={14} className="animate-spin" />
                       Activando Fondo...
                     </>
+                  ) : paymentMethod === "cash" ? (
+                    "Confirmar Entrega en Efectivo y Activar"
                   ) : (
-                    "Activar Fondo"
+                    "Registrar Transferencia y Activar"
                   )}
                 </button>
               </div>
