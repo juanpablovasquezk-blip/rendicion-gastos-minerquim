@@ -42,13 +42,17 @@ export async function requestFund(f: FormData) {
     fail("/fondos", `Error al crear la solicitud: ${error.message}`);
   }
 
+  const isApproverRole = profile.role === "admin" || profile.role === "manager";
+
   // 1. Notificar al solicitante (In-App)
   try {
     await sendNotification({
       userId: profile.id,
       title: "Solicitud de Fondo Enviada",
-      message: `Tu solicitud por ${formatClp(requested_amount)} ("${purpose}") fue enviada a revisión.`,
-      type: "fund_requested",
+      message: isApproverRole
+        ? `Tu solicitud por ${formatClp(requested_amount)} ("${purpose}") fue enviada directamente a Gerencia General para transferencia.`
+        : `Tu solicitud por ${formatClp(requested_amount)} ("${purpose}") fue enviada a revisión de Operaciones.`,
+      type: isApproverRole ? "fund_approved" : "fund_requested",
       link: "/fondos",
       channels: ["in_app"],
     });
@@ -56,23 +60,35 @@ export async function requestFund(f: FormData) {
     console.error("Error notificando al solicitante:", err);
   }
 
-  // 2. Notificar a Gerencia de Operaciones y demás Administradores (excluyendo al solicitante)
+  // 2. Notificar al aprobador correspondiente
   try {
-    await notifyRole(
-      ["admin", "manager"],
-      {
-        title: "Nueva Solicitud de Fondo",
-        message: `${profile.full_name} ha solicitado un fondo por ${formatClp(requested_amount)} para "${purpose}".`,
-        type: "fund_requested",
+    if (isApproverRole) {
+      // Pasa directo a Gerencia General
+      await notifyRole("general_manager", {
+        title: "Solicitud de Fondo de Gerencia",
+        message: `${profile.full_name} ha solicitado un fondo de ${formatClp(requested_amount)} para "${purpose}". Pendiente de transferencia y comprobante.`,
+        type: "fund_approved",
         link: "/aprobaciones",
-      },
-      profile.id
-    );
+      });
+    } else {
+      // Pasa a revisión de Operaciones/Managers
+      await notifyRole(
+        ["admin", "manager"],
+        {
+          title: "Nueva Solicitud de Fondo",
+          message: `${profile.full_name} ha solicitado un fondo por ${formatClp(requested_amount)} para "${purpose}".`,
+          type: "fund_requested",
+          link: "/aprobaciones",
+        },
+        profile.id
+      );
+    }
   } catch (err) {
     console.error("Error notificando solicitud de fondo:", err);
   }
 
   revalidatePath("/fondos");
+  revalidatePath("/aprobaciones");
   redirect("/fondos?success=solicitud_creada");
 }
 
