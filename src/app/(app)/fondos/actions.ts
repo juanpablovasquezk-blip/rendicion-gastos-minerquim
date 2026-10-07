@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import { notifyRole } from "@/lib/notifications/service";
+import { sendNotification, notifyRole } from "@/lib/notifications/service";
 import { formatClp } from "@/lib/format";
 
 const str = (f: FormData, k: string) => String(f.get(k) ?? "").trim();
@@ -48,14 +48,32 @@ export async function requestFund(f: FormData) {
     fail("/fondos", `Error al crear la solicitud: ${error.message}`);
   }
 
-  // Notificar a Gerencia de Operaciones y Administradores
+  // 1. Notificar al solicitante (In-App)
   try {
-    await notifyRole(["admin", "manager"], {
-      title: "Nueva Solicitud de Fondo",
-      message: `${profile.full_name} ha solicitado un fondo por ${formatClp(requested_amount)} para "${purpose}".`,
+    await sendNotification({
+      userId: profile.id,
+      title: "Solicitud de Fondo Enviada",
+      message: `Tu solicitud por ${formatClp(requested_amount)} ("${purpose}") fue enviada a revisión.`,
       type: "fund_requested",
-      link: "/aprobaciones",
+      link: "/fondos",
+      channels: ["in_app"],
     });
+  } catch (err) {
+    console.error("Error notificando al solicitante:", err);
+  }
+
+  // 2. Notificar a Gerencia de Operaciones y demás Administradores (excluyendo al solicitante)
+  try {
+    await notifyRole(
+      ["admin", "manager"],
+      {
+        title: "Nueva Solicitud de Fondo",
+        message: `${profile.full_name} ha solicitado un fondo por ${formatClp(requested_amount)} para "${purpose}".`,
+        type: "fund_requested",
+        link: "/aprobaciones",
+      },
+      profile.id
+    );
   } catch (err) {
     console.error("Error notificando solicitud de fondo:", err);
   }

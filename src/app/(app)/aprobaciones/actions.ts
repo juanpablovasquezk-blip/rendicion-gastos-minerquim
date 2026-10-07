@@ -40,6 +40,7 @@ export async function approveFundByAdmin(f: FormData) {
     .single();
 
   if (fundErr || !fund) fail("/aprobaciones", "No se encontró el fondo solicitado.");
+  if (fund.user_id === profile.id) fail("/aprobaciones", "No puedes auto-aprobar tu propia solicitud de fondos.");
 
   const finalAmount = approvedAmount && approvedAmount > 0 ? approvedAmount : fund.requested_amount;
 

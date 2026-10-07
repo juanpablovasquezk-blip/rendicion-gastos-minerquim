@@ -119,16 +119,23 @@ export async function notifyUsers(
  */
 export async function notifyRole(
   roles: UserRole | UserRole[],
-  options: Omit<SendNotificationOptions, "userId">
+  options: Omit<SendNotificationOptions, "userId">,
+  excludeUserId?: string
 ): Promise<void> {
   const roleList = Array.isArray(roles) ? roles : [roles];
   const sbAdmin = createAdminClient();
 
-  const { data: users, error } = await sbAdmin
+  let query = sbAdmin
     .from("profiles")
     .select("id, full_name, role, phone")
     .in("role", roleList)
     .eq("is_active", true);
+
+  if (excludeUserId) {
+    query = query.neq("id", excludeUserId);
+  }
+
+  const { data: users, error } = await query;
 
   if (error) {
     console.error("[Notification Service] Error consultando roles:", error);

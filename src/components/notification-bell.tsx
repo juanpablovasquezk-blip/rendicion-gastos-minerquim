@@ -10,10 +10,10 @@ import {
   CheckCircle2,
   XCircle,
   Clock,
-  ExternalLink,
-  Smartphone,
   SmartphoneNfc,
   Loader2,
+  AlertCircle,
+  Check,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { usePushNotifications } from "@/lib/notifications/use-push-notifications";
@@ -70,7 +70,7 @@ export function NotificationBell() {
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [isPending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
   const dropdownRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
@@ -78,6 +78,9 @@ export function NotificationBell() {
     isSupported: pushSupported,
     isSubscribed: pushSubscribed,
     loading: pushLoading,
+    feedback: pushFeedback,
+    isIOS,
+    isStandalone,
     subscribe: subscribePush,
   } = usePushNotifications();
 
@@ -138,8 +141,8 @@ export function NotificationBell() {
             setNotifications((prev) => [newNotif, ...prev.slice(0, 19)]);
             setUnreadCount((c) => c + 1);
 
-            // Audio o vibración leve si la ventana está activa
-            if ("vibrate" in navigator) {
+            // Vibración leve si el dispositivo lo soporta
+            if (typeof navigator !== "undefined" && "vibrate" in navigator) {
               navigator.vibrate(50);
             }
           }
@@ -157,7 +160,6 @@ export function NotificationBell() {
             setNotifications((prev) =>
               prev.map((n) => (n.id === updated.id ? updated : n))
             );
-            // Recalcular no leídos
             setNotifications((current) => {
               setUnreadCount(current.filter((n) => !n.is_read).length);
               return current;
@@ -250,20 +252,47 @@ export function NotificationBell() {
             )}
           </div>
 
+          {/* Feedback de estado Web Push */}
+          {pushFeedback && (
+            <div
+              className={`flex items-start gap-2 border-b border-border px-4 py-2.5 text-xs ${
+                pushFeedback.type === "success"
+                  ? "bg-emerald-500/10 text-emerald-800 dark:text-emerald-300"
+                  : pushFeedback.type === "error"
+                  ? "bg-rose-500/10 text-rose-800 dark:text-rose-300"
+                  : "bg-blue-500/10 text-blue-800 dark:text-blue-300"
+              }`}
+            >
+              {pushFeedback.type === "success" ? (
+                <Check size={16} className="shrink-0 text-emerald-600 mt-0.5" />
+              ) : (
+                <AlertCircle size={16} className="shrink-0 mt-0.5" />
+              )}
+              <span className="leading-snug">{pushFeedback.message}</span>
+            </div>
+          )}
+
           {/* Banner de Push Notifications si no está suscrito */}
-          {pushSupported && !pushSubscribed && (
-            <div className="flex items-center justify-between gap-3 border-b border-border bg-amber-500/10 px-4 py-2.5 text-xs text-amber-900 dark:text-amber-200">
-              <div className="flex items-center gap-2">
-                <SmartphoneNfc size={18} className="shrink-0 text-amber-600 dark:text-amber-400" />
-                <span>¿Activar alertas en tu móvil?</span>
+          {!pushSubscribed && (
+            <div className="flex flex-col gap-2 border-b border-border bg-amber-500/10 px-4 py-2.5 text-xs text-amber-900 dark:text-amber-200">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <SmartphoneNfc size={18} className="shrink-0 text-amber-600 dark:text-amber-400" />
+                  <span className="font-medium">¿Activar alertas en tu móvil?</span>
+                </div>
+                <button
+                  onClick={subscribePush}
+                  disabled={pushLoading}
+                  className="shrink-0 rounded-lg bg-amber-600 px-2.5 py-1 text-xs font-semibold text-white transition hover:bg-amber-700 disabled:opacity-50"
+                >
+                  {pushLoading ? <Loader2 size={12} className="animate-spin" /> : "Activar"}
+                </button>
               </div>
-              <button
-                onClick={subscribePush}
-                disabled={pushLoading}
-                className="shrink-0 rounded-lg bg-amber-600 px-2.5 py-1 text-xs font-semibold text-white transition hover:bg-amber-700 disabled:opacity-50"
-              >
-                {pushLoading ? <Loader2 size={12} className="animate-spin" /> : "Activar"}
-              </button>
+              {isIOS && !isStandalone && (
+                <p className="text-[11px] text-amber-800/80 dark:text-amber-300/80 leading-tight">
+                  💡 En iPhone: Primero pulsa Compartir (⎋) y &quot;Agregar a pantalla de inicio&quot; para recibir alertas nativas.
+                </p>
+              )}
             </div>
           )}
 

@@ -199,16 +199,22 @@ export default async function AprobacionesPage({
 
                       <div className="flex flex-col sm:items-end gap-3">
                         <span className="text-lg font-bold">{formatClp(fund.requested_amount)}</span>
-                        <div className="flex items-center gap-2">
-                          <RejectFundModal fundId={fund.id} purpose={fund.purpose} />
-                          <ApproveFundModal
-                            fundId={fund.id}
-                            solicitante={fund.user_profile?.full_name || fund.user_profile?.email}
-                            requestedAmount={fund.requested_amount}
-                            purpose={fund.purpose}
-                            companyName={fund.companies?.name || "Empresa"}
-                          />
-                        </div>
+                        {fund.user_id === profile.id ? (
+                          <span className="rounded-lg bg-amber-500/10 border border-amber-500/20 px-3 py-1.5 text-xs font-semibold text-amber-800 dark:text-amber-300">
+                            Tu solicitud (esperando otro aprobador)
+                          </span>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <RejectFundModal fundId={fund.id} purpose={fund.purpose} />
+                            <ApproveFundModal
+                              fundId={fund.id}
+                              solicitante={fund.user_profile?.full_name || fund.user_profile?.email}
+                              requestedAmount={fund.requested_amount}
+                              purpose={fund.purpose}
+                              companyName={fund.companies?.name || "Empresa"}
+                            />
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}
