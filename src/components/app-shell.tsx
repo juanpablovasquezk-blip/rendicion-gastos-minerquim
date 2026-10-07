@@ -39,9 +39,15 @@ const NAV: NavItem[] = [
   { href: "/admin", label: "Administración", icon: Settings, roles: ["admin"], desktopOnly: true },
 ];
 
-type Props = { role: UserRole; name: string; email: string; children: React.ReactNode };
+type Props = {
+  role: UserRole;
+  name: string;
+  email: string;
+  pendingApprovalsCount?: number;
+  children: React.ReactNode;
+};
 
-export function AppShell({ role, name, email, children }: Props) {
+export function AppShell({ role, name, email, pendingApprovalsCount = 0, children }: Props) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
 
@@ -65,21 +71,43 @@ export function AppShell({ role, name, email, children }: Props) {
         </div>
 
         <nav className="flex-1 space-y-1 p-3">
-          {items.map(({ href, label, icon: Icon }) => (
-            <Link
-              key={href}
-              href={href}
-              title={label}
-              className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
-                isActive(href)
-                  ? "bg-brand-500 text-white shadow-sm"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
-              }`}
-            >
-              <Icon size={20} className="shrink-0" />
-              {!collapsed && label}
-            </Link>
-          ))}
+          {items.map(({ href, label, icon: Icon }) => {
+            const hasBadge = href === "/aprobaciones" && pendingApprovalsCount > 0;
+            return (
+              <Link
+                key={href}
+                href={href}
+                title={label}
+                className={`relative flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium transition ${
+                  isActive(href)
+                    ? "bg-brand-500 text-white shadow-sm"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="relative">
+                    <Icon size={20} className="shrink-0" />
+                    {collapsed && hasBadge && (
+                      <span className="absolute -right-1 -top-1 flex h-2.5 w-2.5 rounded-full bg-amber-500 ring-2 ring-surface" />
+                    )}
+                  </div>
+                  {!collapsed && <span>{label}</span>}
+                </div>
+
+                {!collapsed && hasBadge && (
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-xs font-bold ${
+                      isActive(href)
+                        ? "bg-white text-brand-600"
+                        : "bg-amber-500 text-white"
+                    }`}
+                  >
+                    {pendingApprovalsCount}
+                  </span>
+                )}
+              </Link>
+            );
+          })}
         </nav>
 
         <div className="space-y-2 border-t border-border p-3">
@@ -120,7 +148,7 @@ export function AppShell({ role, name, email, children }: Props) {
             Hola, <span className="font-semibold text-foreground">{name}</span> · {email}
           </p>
           <div className="flex items-center gap-2">
-            <NotificationBell />
+            <NotificationBell pendingApprovalsCount={pendingApprovalsCount} />
             <ThemeToggle compact />
             <form action={signOut} className="md:hidden">
               <button aria-label="Cerrar sesión" className="rounded-full border border-border bg-surface p-2">
@@ -137,7 +165,12 @@ export function AppShell({ role, name, email, children }: Props) {
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] md:hidden">
         <ul className="relative mx-auto grid max-w-md grid-cols-5 items-end">
           {mobileItems.slice(0, half).map((n) => (
-            <BottomLink key={n.href} item={n} active={isActive(n.href)} />
+            <BottomLink
+              key={n.href}
+              item={n}
+              active={isActive(n.href)}
+              badgeCount={n.href === "/aprobaciones" ? pendingApprovalsCount : undefined}
+            />
           ))}
           {mobileItems.length < 4 && <li />}
           <li className="flex justify-center">
@@ -152,7 +185,12 @@ export function AppShell({ role, name, email, children }: Props) {
             )}
           </li>
           {mobileItems.slice(half).map((n) => (
-            <BottomLink key={n.href} item={n} active={isActive(n.href)} />
+            <BottomLink
+              key={n.href}
+              item={n}
+              active={isActive(n.href)}
+              badgeCount={n.href === "/aprobaciones" ? pendingApprovalsCount : undefined}
+            />
           ))}
         </ul>
       </nav>
@@ -160,8 +198,9 @@ export function AppShell({ role, name, email, children }: Props) {
   );
 }
 
-function BottomLink({ item, active }: { item: NavItem; active: boolean }) {
+function BottomLink({ item, active, badgeCount }: { item: NavItem; active: boolean; badgeCount?: number }) {
   const Icon = item.icon;
+  const hasBadge = !!badgeCount && badgeCount > 0;
   return (
     <li>
       <Link
@@ -170,7 +209,14 @@ function BottomLink({ item, active }: { item: NavItem; active: boolean }) {
           active ? "text-primary" : "text-muted-foreground"
         }`}
       >
-        <Icon size={22} />
+        <div className="relative">
+          <Icon size={22} />
+          {hasBadge && (
+            <span className="absolute -right-2 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[9px] font-bold text-white shadow">
+              {badgeCount > 9 ? "9+" : badgeCount}
+            </span>
+          )}
+        </div>
         {item.label}
       </Link>
     </li>

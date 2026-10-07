@@ -65,7 +65,7 @@ function getNotificationIcon(type: string) {
   }
 }
 
-export function NotificationBell() {
+export function NotificationBell({ pendingApprovalsCount = 0 }: { pendingApprovalsCount?: number }) {
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -73,6 +73,8 @@ export function NotificationBell() {
   const [, startTransition] = useTransition();
   const dropdownRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
+
+  const totalBadge = unreadCount + (pendingApprovalsCount || 0);
 
   const {
     isSupported: pushSupported,
@@ -221,9 +223,9 @@ export function NotificationBell() {
         className="relative flex h-10 w-10 items-center justify-center rounded-full border border-border bg-surface text-foreground transition hover:bg-muted active:scale-95"
       >
         <Bell size={18} />
-        {unreadCount > 0 && (
+        {totalBadge > 0 && (
           <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1 text-[11px] font-bold text-white shadow-sm animate-in fade-in zoom-in duration-200">
-            {unreadCount > 9 ? "9+" : unreadCount}
+            {totalBadge > 9 ? "9+" : totalBadge}
           </span>
         )}
       </button>
@@ -235,9 +237,9 @@ export function NotificationBell() {
           <div className="flex items-center justify-between border-b border-border bg-muted/40 px-4 py-3">
             <div className="flex items-center gap-2">
               <span className="font-semibold text-sm">Notificaciones</span>
-              {unreadCount > 0 && (
+              {totalBadge > 0 && (
                 <span className="rounded-full bg-primary/15 px-2 py-0.5 text-xs font-semibold text-primary">
-                  {unreadCount} nuevas
+                  {totalBadge} nuevas
                 </span>
               )}
             </div>
@@ -251,6 +253,38 @@ export function NotificationBell() {
               </button>
             )}
           </div>
+
+          {/* Banner de Aprobaciones Pendientes si existen */}
+          {pendingApprovalsCount > 0 && (
+            <div className="border-b border-amber-300/60 bg-amber-500/10 p-3.5 dark:border-amber-700/60 dark:bg-amber-950/40">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-2.5">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-500 text-white shadow-sm mt-0.5">
+                    <Clock size={16} />
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-amber-950 dark:text-amber-200">
+                      {pendingApprovalsCount} Aprobación{pendingApprovalsCount > 1 ? "es" : ""} Pendiente{pendingApprovalsCount > 1 ? "s" : ""}
+                    </p>
+                    <p className="text-[11px] text-amber-800/90 dark:text-amber-400/90">
+                      Tienes solicitudes o rendiciones en espera de tu firma.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setIsOpen(false);
+                    startTransition(() => {
+                      router.push("/aprobaciones");
+                    });
+                  }}
+                  className="shrink-0 rounded-lg bg-amber-500 px-2.5 py-1 text-xs font-bold text-white shadow hover:bg-amber-600 transition active:scale-95"
+                >
+                  Revisar
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Feedback de estado Web Push */}
           {pushFeedback && (

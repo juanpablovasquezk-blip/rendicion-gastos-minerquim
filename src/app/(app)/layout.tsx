@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { getProfile } from "@/lib/auth";
 import { signOut } from "@/app/login/actions";
+import { getPendingApprovalsSummary } from "@/lib/approvals-count";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const profile = await getProfile();
@@ -21,8 +22,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     );
   }
 
+  const approvalsSummary = await getPendingApprovalsSummary(profile.role, profile.id);
+
   return (
-    <AppShell role={profile.role} name={profile.full_name} email={profile.email}>
+    <AppShell
+      role={profile.role}
+      name={profile.full_name}
+      email={profile.email}
+      pendingApprovalsCount={approvalsSummary.total}
+    >
       {children}
     </AppShell>
   );
