@@ -18,17 +18,65 @@ export type Profile = {
 
 /** Perfil del usuario autenticado (una consulta por request). */
 export const getProfile = cache(async (): Promise<Profile | null> => {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
-  const { data } = await supabase
-    .from("profiles")
-    .select("id, full_name, email, role, is_active, credit_balance, phone")
-    .eq("id", user.id)
-    .single();
-  return (data as Profile | null) ?? null;
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+      error: userErr,
+    } = await supabase.auth.getUser();
+
+    if (userErr || !user) return null;
+
+    // Intentar obtener perfil completo
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", user.id)
+      .single();
+
+    if (error || !data) {
+      console.warn("[getProfile] Error al consultar perfil completo, intentando campos básicos:", error?.message);
+      // Fallback a campos esenciales para no bloquear la sesión
+      const { data: fallbackData } = await supabase
+        .from("profiles")
+        .select("id, full_name, email, role, is_active")
+        .eq("id", user.id)
+        .single();
+
+      if (fallbackData) {
+        return {
+          id: fallbackData.id,
+          full_name: fallbackData.full_name,
+          email: fallbackData.email,
+          role: fallbackData.role,
+          is_active: fallbackData.is_active,
+          credit_balance: 0,
+          phone: null,
+        };
+      }
+      return null;
+    }
+
+    return {
+      id: data.id,
+      full_name: data.full_name,
+      email: data.email,
+      role: data.role,
+      is_active: data.is_active,
+      credit_balance: Number(data.credit_balance || 0),
+      phone: data.phone || null,
+    };
+  } catch (err: any) {
+    if (
+      err?.digest === "DYNAMIC_SERVER_USAGE" ||
+      err?.message?.includes("DYNAMIC_SERVER_USAGE") ||
+      err?.message?.includes("Dynamic server usage")
+    ) {
+      throw err;
+    }
+    console.error("[getProfile] Error al recuperar sesión:", err?.message || err);
+    return null;
+  }
 });
 
 /** Exige sesión y uno de los roles indicados; si no, redirige al inicio. */

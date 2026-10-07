@@ -57,7 +57,7 @@ export async function requestFund(f: FormData) {
   const appliedCredit = Math.min(creditBalance, requested_amount);
   const netDepositAmount = requested_amount - appliedCredit + reimbursementsBonus;
 
-  const { data: newFund, error } = await sb
+  let { data: newFund, error } = await sb
     .from("cash_advances")
     .insert({
       user_id: profile.id,
@@ -73,7 +73,21 @@ export async function requestFund(f: FormData) {
     .single();
 
   if (error) {
-    fail("/fondos", `Error al crear la solicitud: ${error.message}`);
+    // Fallback a campos estándar si la base de datos remota aún no ha aplicado las columnas opcionales
+    const retry = await sb
+      .from("cash_advances")
+      .insert({
+        user_id: profile.id,
+        purpose,
+        requested_amount,
+      })
+      .select("id")
+      .single();
+
+    if (retry.error) {
+      fail("/fondos", `Error al crear la solicitud: ${retry.error.message}`);
+    }
+    newFund = retry.data;
   }
 
   // Si se aplicó crédito remanente, descontarlo del perfil
