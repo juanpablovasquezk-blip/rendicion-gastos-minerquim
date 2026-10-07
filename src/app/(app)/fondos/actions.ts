@@ -49,12 +49,16 @@ export async function requestFund(f: FormData) {
   }
 
   // Notificar a Gerencia de Operaciones y Administradores
-  notifyRole(["admin", "manager"], {
-    title: "Nueva Solicitud de Fondo",
-    message: `${profile.full_name} ha solicitado un fondo por ${formatClp(requested_amount)} para "${purpose}".`,
-    type: "fund_requested",
-    link: "/aprobaciones",
-  }).catch((err) => console.error("Error notificando solicitud de fondo:", err));
+  try {
+    await notifyRole(["admin", "manager"], {
+      title: "Nueva Solicitud de Fondo",
+      message: `${profile.full_name} ha solicitado un fondo por ${formatClp(requested_amount)} para "${purpose}".`,
+      type: "fund_requested",
+      link: "/aprobaciones",
+    });
+  } catch (err) {
+    console.error("Error notificando solicitud de fondo:", err);
+  }
 
   revalidatePath("/fondos");
   redirect("/fondos?success=solicitud_creada");

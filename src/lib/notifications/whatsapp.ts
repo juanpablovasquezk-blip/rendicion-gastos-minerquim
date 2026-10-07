@@ -3,10 +3,15 @@
  * Se activa si están presentes ULTRAMSG_INSTANCE_ID y ULTRAMSG_TOKEN en las variables de entorno
  */
 export async function sendWhatsAppNotification(toPhone: string, message: string): Promise<{ success: boolean; error?: string }> {
-  const instanceId = process.env.ULTRAMSG_INSTANCE_ID;
-  const token = process.env.ULTRAMSG_TOKEN;
+  const instanceId = process.env.ULTRAMSG_INSTANCE_ID?.trim();
+  const token = process.env.ULTRAMSG_TOKEN?.trim();
 
   if (!instanceId || !token || !toPhone) {
+    console.warn("[UltraMsg] Faltan credenciales o teléfono:", {
+      hasInstance: !!instanceId,
+      hasToken: !!token,
+      toPhone,
+    });
     return { success: false, error: "UltraMsg no configurado o teléfono faltante" };
   }
 
@@ -23,6 +28,8 @@ export async function sendWhatsAppNotification(toPhone: string, message: string)
     cleanPhone = `56${cleanPhone}`;
   }
 
+  console.log(`[UltraMsg] Enviando a ${cleanPhone} (Instance: ${instanceId})`);
+
   try {
     const params = new URLSearchParams({
       token,
@@ -36,16 +43,17 @@ export async function sendWhatsAppNotification(toPhone: string, message: string)
       body: params.toString(),
     });
 
+    const responseText = await res.text();
+    console.log(`[UltraMsg] Respuesta (HTTP ${res.status}):`, responseText);
+
     if (!res.ok) {
-      const errText = await res.text();
-      console.error("UltraMsg API error:", res.status, errText);
-      return { success: false, error: errText };
+      return { success: false, error: responseText };
     }
 
     return { success: true };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error("Error conectando con UltraMsg:", msg);
+    console.error("[UltraMsg] Error de conexión:", msg);
     return { success: false, error: msg };
   }
 }

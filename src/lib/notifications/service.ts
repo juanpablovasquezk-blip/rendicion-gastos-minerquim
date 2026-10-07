@@ -40,7 +40,7 @@ export async function sendNotification({
   // 1. In-App Notification (Guardar en base de datos)
   if (channels.includes("in_app")) {
     try {
-      await sbAdmin.from("notifications").insert({
+      const { error } = await sbAdmin.from("notifications").insert({
         user_id: userId,
         title,
         message,
@@ -48,26 +48,35 @@ export async function sendNotification({
         link,
         metadata,
       });
+      if (error) {
+        console.error("[Notification Service] Error guardando In-App:", error);
+      }
     } catch (err) {
-      console.error("Error guardando notificación In-App:", err);
+      console.error("[Notification Service] Excepción In-App:", err);
     }
   }
 
   // 2. WhatsApp Notification (si el usuario tiene teléfono configurado)
   if (channels.includes("whatsapp")) {
     try {
-      const { data: profile } = await sbAdmin
+      const { data: profile, error: profErr } = await sbAdmin
         .from("profiles")
-        .select("phone, full_name")
+        .select("phone, full_name, email")
         .eq("id", userId)
         .single();
 
-      if (profile?.phone) {
-        const whatsappMsg = `🔔 *Minerquim Rendiciones*\n\n*${title}*\n${message}\n\n👉 Ver en plataforma: ${process.env.NEXT_PUBLIC_APP_URL || "https://rendicion-minerquim.cl"}${link}`;
+      if (profErr) {
+        console.error("[Notification Service] Error buscando perfil:", profErr);
+      } else if (profile?.phone) {
+        console.log(`[Notification Service] Enviando WhatsApp a ${profile.full_name} (${profile.phone})`);
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://rendicion-minerquim.cl";
+        const whatsappMsg = `🔔 *Minerquim Rendiciones*\n\n*${title}*\n${message}\n\n👉 Ver en plataforma: ${appUrl}${link}`;
         await sendWhatsAppNotification(profile.phone, whatsappMsg);
+      } else {
+        console.log(`[Notification Service] El usuario ${profile?.full_name || profile?.email || userId} no tiene teléfono en su perfil.`);
       }
     } catch (err) {
-      console.error("Error despachando WhatsApp:", err);
+      console.error("[Notification Service] Error despachando WhatsApp:", err);
     }
   }
 
@@ -81,7 +90,7 @@ export async function sendNotification({
         data: { type, ...metadata },
       });
     } catch (err) {
-      console.error("Error despachando Web Push:", err);
+      console.error("[Notification Service] Error despachando Web Push:", err);
     }
   }
 }
@@ -94,6 +103,7 @@ export async function notifyUsers(
   options: Omit<SendNotificationOptions, "userId">
 ): Promise<void> {
   const uniqueIds = Array.from(new Set(userIds.filter(Boolean)));
+  console.log(`[Notification Service] Notificando a ${uniqueIds.length} usuario(s):`, uniqueIds);
   await Promise.allSettled(
     uniqueIds.map((userId) =>
       sendNotification({
@@ -116,13 +126,21 @@ export async function notifyRole(
 
   const { data: users, error } = await sbAdmin
     .from("profiles")
-    .select("id")
+    .select("id, full_name, role, phone")
     .in("role", roleList)
     .eq("is_active", true);
 
-  if (error || !users || users.length === 0) {
+  if (error) {
+    console.error("[Notification Service] Error consultando roles:", error);
     return;
   }
+
+  if (!users || users.length === 0) {
+    console.warn(`[Notification Service] No se encontraron usuarios activos con rol(es): ${roleList.join(", ")}`);
+    return;
+  }
+
+  console.log(`[Notification Service] Usuarios activos con roles [${roleList.join(", ")}]:`, users.map((u: { full_name: string; phone?: string | null }) => `${u.full_name} (tel: ${u.phone || 'sin tel'})`));
 
   const userIds = users.map((u: { id: string }) => u.id);
   await notifyUsers(userIds, options);

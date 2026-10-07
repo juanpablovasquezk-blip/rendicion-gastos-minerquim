@@ -200,12 +200,16 @@ export async function submitReport(f: FormData) {
   });
 
   // Notificar a aprobadores
-  notifyRole(["admin", "manager", "general_manager"], {
-    title: "Nueva Rendición de Gastos",
-    message: `${profile.full_name} ha enviado un informe de gastos para revisión y aprobación.`,
-    type: "expense_submitted",
-    link: "/aprobaciones",
-  }).catch((err) => console.error("Error notificando envío de informe:", err));
+  try {
+    await notifyRole(["admin", "manager", "general_manager"], {
+      title: "Nueva Rendición de Gastos",
+      message: `${profile.full_name} ha enviado un informe de gastos para revisión y aprobación.`,
+      type: "expense_submitted",
+      link: "/aprobaciones",
+    });
+  } catch (err) {
+    console.error("Error notificando envío de informe:", err);
+  }
 
   revalidatePath("/gastos");
   revalidatePath("/aprobaciones");

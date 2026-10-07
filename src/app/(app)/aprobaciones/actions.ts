@@ -67,21 +67,29 @@ export async function approveFundByAdmin(f: FormData) {
   });
 
   // 1. Notificar a Gerencia General para depósito bancario
-  notifyRole("general_manager", {
-    title: "Fondo Aprobado por Operaciones",
-    message: `Fondo por ${formatClp(finalAmount)} (${fund.purpose}) aprobado por Operaciones. Pendiente de transferencia bancaria.`,
-    type: "fund_approved",
-    link: "/aprobaciones",
-  }).catch((err) => console.error("Error notificando a Gerencia General:", err));
+  try {
+    await notifyRole("general_manager", {
+      title: "Fondo Aprobado por Operaciones",
+      message: `Fondo por ${formatClp(finalAmount)} (${fund.purpose}) aprobado por Operaciones. Pendiente de transferencia bancaria.`,
+      type: "fund_approved",
+      link: "/aprobaciones",
+    });
+  } catch (err) {
+    console.error("Error notificando a Gerencia General:", err);
+  }
 
   // 2. Notificar al empleado solicitante
-  sendNotification({
-    userId: fund.user_id,
-    title: "Fondo Aprobado por Operaciones",
-    message: `Tu solicitud de fondo por ${formatClp(finalAmount)} fue aprobada y derivada a Gerencia General para su transferencia.`,
-    type: "fund_approved",
-    link: "/fondos",
-  }).catch((err) => console.error("Error notificando al colaborador:", err));
+  try {
+    await sendNotification({
+      userId: fund.user_id,
+      title: "Fondo Aprobado por Operaciones",
+      message: `Tu solicitud de fondo por ${formatClp(finalAmount)} fue aprobada y derivada a Gerencia General para su transferencia.`,
+      type: "fund_approved",
+      link: "/fondos",
+    });
+  } catch (err) {
+    console.error("Error notificando al colaborador:", err);
+  }
 
   revalidatePath("/aprobaciones");
   revalidatePath("/fondos");
@@ -161,13 +169,17 @@ export async function depositFundByGM(f: FormData) {
   });
 
   // Notificar al colaborador que los fondos fueron transferidos y están activos
-  sendNotification({
-    userId: fund.user_id,
-    title: "¡Fondo Transferido y Activo!",
-    message: `Se ha verificado la transferencia por ${formatClp(amountToActivate)} para "${fund.purpose}". Ya puedes comenzar a rendir gastos.`,
-    type: "fund_deposited",
-    link: "/fondos",
-  }).catch((err) => console.error("Error notificando depósito al empleado:", err));
+  try {
+    await sendNotification({
+      userId: fund.user_id,
+      title: "¡Fondo Transferido y Activo!",
+      message: `Se ha verificado la transferencia por ${formatClp(amountToActivate)} para "${fund.purpose}". Ya puedes comenzar a rendir gastos.`,
+      type: "fund_deposited",
+      link: "/fondos",
+    });
+  } catch (err) {
+    console.error("Error notificando depósito al empleado:", err);
+  }
 
   revalidatePath("/aprobaciones");
   revalidatePath("/fondos");
@@ -215,13 +227,17 @@ export async function rejectFund(f: FormData) {
     });
 
     // Notificar al colaborador sobre el rechazo
-    sendNotification({
-      userId: fund.user_id,
-      title: "Solicitud de Fondo Rechazada",
-      message: `Tu solicitud de fondo para "${fund.purpose}" ha sido rechazada. Motivo: "${rejectionReason}".`,
-      type: "fund_rejected",
-      link: "/fondos",
-    }).catch((err) => console.error("Error notificando rechazo de fondo:", err));
+    try {
+      await sendNotification({
+        userId: fund.user_id,
+        title: "Solicitud de Fondo Rechazada",
+        message: `Tu solicitud de fondo para "${fund.purpose}" ha sido rechazada. Motivo: "${rejectionReason}".`,
+        type: "fund_rejected",
+        link: "/fondos",
+      });
+    } catch (err) {
+      console.error("Error notificando rechazo de fondo:", err);
+    }
   }
 
   revalidatePath("/aprobaciones");
@@ -289,13 +305,17 @@ export async function rejectExpenseItem(f: FormData) {
   }
 
   if (exp) {
-    sendNotification({
-      userId: exp.user_id,
-      title: "Gasto Observado / Rechazado",
-      message: `Un ítem por ${formatClp(exp.total_amount)} (${exp.description || "Gasto"}) fue observado. Motivo: "${rejectionReason}".`,
-      type: "expense_rejected",
-      link: "/gastos",
-    }).catch((err) => console.error("Error notificando rechazo de gasto:", err));
+    try {
+      await sendNotification({
+        userId: exp.user_id,
+        title: "Gasto Observado / Rechazado",
+        message: `Un ítem por ${formatClp(exp.total_amount)} (${exp.description || "Gasto"}) fue observado. Motivo: "${rejectionReason}".`,
+        type: "expense_rejected",
+        link: "/gastos",
+      });
+    } catch (err) {
+      console.error("Error notificando rechazo de gasto:", err);
+    }
   }
 
   revalidatePath("/aprobaciones");
@@ -366,13 +386,17 @@ export async function resolveReport(f: FormData) {
       ? "revisado con observaciones o ítems rechazados que requieren tu atención."
       : "liquidado y cerrado.";
 
-  sendNotification({
-    userId: report.user_id,
-    title: newStatus === "approved" ? "¡Rendición Aprobada!" : "Rendición con Observaciones",
-    message: `Tu informe "${report.title}" ha sido ${statusMsg}`,
-    type: newStatus === "approved" ? "expense_approved" : "expense_rejected",
-    link: "/gastos",
-  }).catch((err) => console.error("Error notificando resolución de informe:", err));
+  try {
+    await sendNotification({
+      userId: report.user_id,
+      title: newStatus === "approved" ? "¡Rendición Aprobada!" : "Rendición con Observaciones",
+      message: `Tu informe "${report.title}" ha sido ${statusMsg}`,
+      type: newStatus === "approved" ? "expense_approved" : "expense_rejected",
+      link: "/gastos",
+    });
+  } catch (err) {
+    console.error("Error notificando resolución de informe:", err);
+  }
 
   revalidatePath("/aprobaciones");
   revalidatePath("/gastos");
@@ -451,13 +475,17 @@ export async function settleReimbursementWithProof(f: FormData) {
   });
 
   // Notificar al colaborador que su reembolso fue pagado
-  sendNotification({
-    userId: report.user_id,
-    title: "¡Reembolso Liquidado y Pagado!",
-    message: `Tu informe "${report.title}" por ${formatClp(report.total_amount)} fue pagado mediante ${paymentMethod === "cash" ? "Efectivo" : "Transferencia Bancaria"}.`,
-    type: "expense_approved",
-    link: "/gastos",
-  }).catch((err) => console.error("Error notificando liquidación de reembolso:", err));
+  try {
+    await sendNotification({
+      userId: report.user_id,
+      title: "¡Reembolso Liquidado y Pagado!",
+      message: `Tu informe "${report.title}" por ${formatClp(report.total_amount)} fue pagado mediante ${paymentMethod === "cash" ? "Efectivo" : "Transferencia Bancaria"}.`,
+      type: "expense_approved",
+      link: "/gastos",
+    });
+  } catch (err) {
+    console.error("Error notificando liquidación de reembolso:", err);
+  }
 
   revalidatePath("/aprobaciones");
   revalidatePath("/gastos");
