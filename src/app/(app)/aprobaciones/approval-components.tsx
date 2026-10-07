@@ -1,8 +1,16 @@
 "use client";
 
 import { useState, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { Check, X, Upload, FileText, CheckCircle2, Ban, Loader2 } from "lucide-react";
-import { approveFundByAdmin, depositFundByGM, rejectFund, approveExpenseItem, rejectExpenseItem, settleReimbursementWithProof } from "./actions";
+import {
+  approveFundByAdmin,
+  depositFundByGM,
+  rejectFund,
+  approveExpenseItem,
+  rejectExpenseItem,
+  settleReimbursementWithProof,
+} from "./actions";
 import { formatClp, formatRut, formatDate } from "@/lib/format";
 import { compressImage } from "@/lib/image-compression";
 
@@ -22,6 +30,7 @@ export function ApproveFundModal({
   purpose: string;
   companyName?: string;
 }) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [amountStr, setAmountStr] = useState(new Intl.NumberFormat("es-CL").format(requestedAmount));
   const [comments, setComments] = useState("");
@@ -39,13 +48,17 @@ export function ApproveFundModal({
       fd.set("approved_amount", amountStr);
       fd.set("comments", comments);
 
-      await approveFundByAdmin(fd);
-      setOpen(false);
-    } catch (err: any) {
-      if (err?.message?.includes("NEXT_REDIRECT")) {
-        return;
+      const res = await approveFundByAdmin(fd);
+      if (res.success) {
+        setOpen(false);
+        router.push("/aprobaciones?success=fondo_aprobado_operaciones");
+        router.refresh();
+      } else {
+        setErrorMessage(res.error || "Error al aprobar la solicitud.");
+        setIsPending(false);
       }
-      setErrorMessage(err?.message || "Error al aprobar la solicitud.");
+    } catch (err: any) {
+      setErrorMessage(err?.message || "Error inesperado al procesar la aprobación.");
       setIsPending(false);
     }
   };
@@ -185,6 +198,7 @@ export function DepositFundModal({
   purpose: string;
   companyName: string;
 }) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<"transfer" | "cash">("transfer");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -192,7 +206,7 @@ export function DepositFundModal({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [depositNote, setDepositNote] = useState("");
   const [isDragging, setIsDragging] = useState(false);
-  const [isPending, startTransition] = useState(false);
+  const [isPending, setIsPending] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -244,7 +258,7 @@ export function DepositFundModal({
     }
 
     setErrorMessage(null);
-    startTransition(true);
+    setIsPending(true);
 
     try {
       const fd = new FormData();
@@ -255,15 +269,18 @@ export function DepositFundModal({
         fd.set("deposit_file", selectedFile);
       }
 
-      await depositFundByGM(fd);
-      setOpen(false);
-    } catch (err: any) {
-      if (err?.message?.includes("NEXT_REDIRECT")) {
-        // Redirección exitosa de Next.js
-        return;
+      const res = await depositFundByGM(fd);
+      if (res.success) {
+        setOpen(false);
+        router.push("/aprobaciones?success=fondo_depositado_activado");
+        router.refresh();
+      } else {
+        setErrorMessage(res.error || "Ocurrió un error al activar el fondo. Intenta nuevamente.");
+        setIsPending(false);
       }
-      setErrorMessage(err?.message || "Ocurrió un error al activar el fondo. Intenta nuevamente.");
-      startTransition(false);
+    } catch (err: any) {
+      setErrorMessage(err?.message || "Ocurrió un error inesperado al activar el fondo.");
+      setIsPending(false);
     }
   };
 
@@ -484,13 +501,45 @@ export function DepositFundModal({
    3. Modal de Rechazo con Motivo Obligatorio
    ------------------------------------------------------------------------- */
 export function RejectFundModal({ fundId, purpose }: { fundId: string; purpose: string }) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [rejectionReason, setRejectionReason] = useState("");
+  const [isPending, setIsPending] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage(null);
+    setIsPending(true);
+
+    try {
+      const fd = new FormData();
+      fd.set("fund_id", fundId);
+      fd.set("rejection_reason", rejectionReason);
+
+      const res = await rejectFund(fd);
+      if (res.success) {
+        setOpen(false);
+        router.push("/aprobaciones?success=fondo_rechazado");
+        router.refresh();
+      } else {
+        setErrorMessage(res.error || "Error al rechazar el fondo.");
+        setIsPending(false);
+      }
+    } catch (err: any) {
+      setErrorMessage(err?.message || "Error al rechazar el fondo.");
+      setIsPending(false);
+    }
+  };
 
   return (
     <>
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          setOpen(true);
+          setErrorMessage(null);
+        }}
         className="inline-flex items-center gap-1 rounded-xl border border-border px-3 py-2 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 dark:hover:bg-rose-950/30"
       >
         <Ban size={15} />
@@ -502,16 +551,26 @@ export function RejectFundModal({ fundId, purpose }: { fundId: string; purpose: 
           <div className="w-full max-w-md rounded-2xl border border-border bg-surface p-6 shadow-2xl animate-in zoom-in-95">
             <div className="flex items-center justify-between border-b border-border pb-3">
               <h2 className="text-base font-bold text-rose-600">Rechazar Solicitud de Fondo</h2>
-              <button onClick={() => setOpen(false)} className="text-muted-foreground hover:text-foreground">
+              <button
+                disabled={isPending}
+                onClick={() => setOpen(false)}
+                className="text-muted-foreground hover:text-foreground disabled:opacity-50"
+              >
                 <X size={20} />
               </button>
             </div>
+
+            {errorMessage && (
+              <div className="mt-3 rounded-xl border border-rose-300 bg-rose-50 p-3 text-xs font-semibold text-rose-800 dark:border-rose-900 dark:bg-rose-950/50 dark:text-rose-300">
+                {errorMessage}
+              </div>
+            )}
 
             <p className="mt-3 text-xs text-muted-foreground">
               Fondo: <strong>{purpose}</strong>
             </p>
 
-            <form action={rejectFund} className="mt-4 space-y-4">
+            <form onSubmit={handleSubmit} className="mt-4 space-y-4">
               <input type="hidden" name="fund_id" value={fundId} />
 
               <label className="block">
@@ -522,24 +581,29 @@ export function RejectFundModal({ fundId, purpose }: { fundId: string; purpose: 
                   name="rejection_reason"
                   required
                   rows={3}
+                  value={rejectionReason}
+                  onChange={(e) => setRejectionReason(e.target.value)}
+                  disabled={isPending}
                   placeholder="Indica el motivo por el cual no se aprueba esta solicitud..."
-                  className="w-full rounded-xl border border-rose-300 bg-background p-3 text-xs outline-none focus:border-rose-500 focus:ring-2 focus:ring-rose-200 dark:border-rose-800"
+                  className="w-full rounded-xl border border-rose-300 bg-background p-3 text-xs outline-none focus:border-rose-500 focus:ring-2 focus:ring-rose-200 dark:border-rose-800 disabled:opacity-50"
                 />
               </label>
 
               <div className="flex justify-end gap-2 border-t border-border pt-4">
                 <button
                   type="button"
+                  disabled={isPending}
                   onClick={() => setOpen(false)}
-                  className="rounded-xl border border-border px-3.5 py-2 text-xs font-semibold hover:bg-muted"
+                  className="rounded-xl border border-border px-3.5 py-2 text-xs font-semibold hover:bg-muted disabled:opacity-50"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="rounded-xl bg-rose-600 px-4 py-2 text-xs font-bold text-white shadow transition hover:bg-rose-700"
+                  disabled={isPending}
+                  className="rounded-xl bg-rose-600 px-4 py-2 text-xs font-bold text-white shadow transition hover:bg-rose-700 disabled:opacity-50"
                 >
-                  Confirmar Rechazo
+                  {isPending ? "Rechazando..." : "Confirmar Rechazo"}
                 </button>
               </div>
             </form>
@@ -561,19 +625,57 @@ export function ExpenseApprovalItem({
   expense: any;
   receiptUrl: string | null;
 }) {
+  const router = useRouter();
   const [rejecting, setRejecting] = useState(false);
+  const [rejectionReason, setRejectionReason] = useState("");
+  const [isProcessing, setIsProcessing] = useState(false);
 
   const isApproved = expense.status === "approved";
   const isRejected = expense.status === "rejected";
 
+  const handleApprove = async () => {
+    setIsProcessing(true);
+    const fd = new FormData();
+    fd.set("expense_id", expense.id);
+    const res = await approveExpenseItem(fd);
+    if (res.success) {
+      router.refresh();
+    } else {
+      alert(res.error || "Error al aprobar ítem.");
+    }
+    setIsProcessing(false);
+  };
+
+  const handleReject = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!rejectionReason || rejectionReason.length < 5) {
+      alert("Ingresa una observación detallada (mínimo 5 caracteres).");
+      return;
+    }
+    setIsProcessing(true);
+    const fd = new FormData();
+    fd.set("expense_id", expense.id);
+    fd.set("rejection_reason", rejectionReason);
+    const res = await rejectExpenseItem(fd);
+    if (res.success) {
+      setRejecting(false);
+      router.refresh();
+    } else {
+      alert(res.error || "Error al rechazar ítem.");
+    }
+    setIsProcessing(false);
+  };
+
   return (
-    <div className={`p-4 rounded-xl border transition ${
-      isApproved
-        ? "border-emerald-200 bg-emerald-50/30 dark:border-emerald-950 dark:bg-emerald-950/20"
-        : isRejected
-        ? "border-rose-200 bg-rose-50/30 dark:border-rose-950 dark:bg-rose-950/20"
-        : "border-border bg-background"
-    }`}>
+    <div
+      className={`p-4 rounded-xl border transition ${
+        isApproved
+          ? "border-emerald-200 bg-emerald-50/30 dark:border-emerald-950 dark:bg-emerald-950/20"
+          : isRejected
+          ? "border-rose-200 bg-rose-50/30 dark:border-rose-950 dark:bg-rose-950/20"
+          : "border-border bg-background"
+      }`}
+    >
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
         <div className="space-y-1 flex-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -638,24 +740,24 @@ export function ExpenseApprovalItem({
             )}
 
             {!isApproved && (
-              <form action={approveExpenseItem}>
-                <input type="hidden" name="expense_id" value={expense.id} />
-                <button
-                  type="submit"
-                  title="Aprobar ítem"
-                  className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-emerald-700"
-                >
-                  <Check size={14} /> Aprobar
-                </button>
-              </form>
+              <button
+                type="button"
+                onClick={handleApprove}
+                disabled={isProcessing}
+                title="Aprobar ítem"
+                className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50"
+              >
+                <Check size={14} /> Aprobar
+              </button>
             )}
 
             {!isRejected && !rejecting && (
               <button
                 type="button"
                 onClick={() => setRejecting(true)}
+                disabled={isProcessing}
                 title="Observar o rechazar ítem"
-                className="inline-flex items-center gap-1 rounded-lg border border-rose-300 px-2.5 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 dark:border-rose-800 dark:hover:bg-rose-950/30"
+                className="inline-flex items-center gap-1 rounded-lg border border-rose-300 px-2.5 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 dark:border-rose-800 dark:hover:bg-rose-950/30 disabled:opacity-50"
               >
                 <X size={14} /> Observar
               </button>
@@ -664,30 +766,31 @@ export function ExpenseApprovalItem({
         </div>
       </div>
 
-      {/* Formulario desplegable para motivo de rechazo individual */}
+      {/* Formulario desplegable para justificar observación */}
       {rejecting && (
-        <form action={rejectExpenseItem} className="mt-3 border-t border-border pt-3 space-y-2">
-          <input type="hidden" name="expense_id" value={expense.id} />
-          <label className="block text-xs font-semibold text-rose-700 dark:text-rose-300">
-            Observación / Motivo para rechazar este ítem:
-          </label>
-          <input
-            name="rejection_reason"
+        <form onSubmit={handleReject} className="mt-3 pt-3 border-t border-border flex flex-col gap-2">
+          <textarea
             required
-            placeholder="Ej: Factura no corresponde al RUT de la empresa seleccionada..."
-            className="w-full rounded-xl border border-rose-300 bg-background px-3 py-1.5 text-xs outline-none focus:border-rose-500"
+            rows={2}
+            value={rejectionReason}
+            onChange={(e) => setRejectionReason(e.target.value)}
+            disabled={isProcessing}
+            placeholder="Escribe el motivo del rechazo u observación para el colaborador..."
+            className="w-full rounded-lg border border-rose-300 bg-background p-2 text-xs outline-none focus:border-rose-500 dark:border-rose-800 disabled:opacity-50"
           />
           <div className="flex justify-end gap-2">
             <button
               type="button"
+              disabled={isProcessing}
               onClick={() => setRejecting(false)}
-              className="px-2.5 py-1 text-xs rounded-lg border border-border"
+              className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted"
             >
               Cancelar
             </button>
             <button
               type="submit"
-              className="px-3 py-1 text-xs rounded-lg bg-rose-600 text-white font-bold"
+              disabled={isProcessing}
+              className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-rose-700 disabled:opacity-50"
             >
               Confirmar Observación
             </button>
@@ -699,7 +802,7 @@ export function ExpenseApprovalItem({
 }
 
 /* -------------------------------------------------------------------------
-   5. Modal de Pago / Liquidación de Reembolso al Trabajador
+   5. Modal de Liquidación / Pago de Reembolso
    ------------------------------------------------------------------------- */
 export function SettleReimbursementModal({
   reportId,
@@ -712,6 +815,7 @@ export function SettleReimbursementModal({
   amount: number;
   title: string;
 }) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<"transfer" | "cash">("transfer");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -781,12 +885,16 @@ export function SettleReimbursementModal({
       fd.set("payment_note", paymentNote);
       if (selectedFile) fd.set("proof_file", selectedFile);
 
-      await settleReimbursementWithProof(fd);
-      setOpen(false);
-    } catch (err: any) {
-      if (err?.message?.includes("NEXT_REDIRECT")) {
-        return;
+      const res = await settleReimbursementWithProof(fd);
+      if (res.success) {
+        setOpen(false);
+        router.push("/aprobaciones?success=reembolso_pagado_liquidado");
+        router.refresh();
+      } else {
+        setErrorMessage(res.error || "Error al liquidar el reembolso.");
+        setIsPending(false);
       }
+    } catch (err: any) {
       setErrorMessage(err?.message || "Error al liquidar el reembolso.");
       setIsPending(false);
     }
@@ -846,7 +954,10 @@ export function SettleReimbursementModal({
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
-                    onClick={() => setPaymentMethod("transfer")}
+                    onClick={() => {
+                      setPaymentMethod("transfer");
+                      setErrorMessage(null);
+                    }}
                     className={`rounded-xl border p-2.5 text-xs font-semibold transition ${
                       paymentMethod === "transfer"
                         ? "border-primary bg-brand-50/50 text-primary ring-2 ring-primary/20 dark:bg-brand-950/30"
@@ -857,7 +968,10 @@ export function SettleReimbursementModal({
                   </button>
                   <button
                     type="button"
-                    onClick={() => setPaymentMethod("cash")}
+                    onClick={() => {
+                      setPaymentMethod("cash");
+                      setErrorMessage(null);
+                    }}
                     className={`rounded-xl border p-2.5 text-xs font-semibold transition ${
                       paymentMethod === "cash"
                         ? "border-primary bg-brand-50/50 text-primary ring-2 ring-primary/20 dark:bg-brand-950/30"
