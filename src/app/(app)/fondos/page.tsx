@@ -334,7 +334,17 @@ export default async function FondosPage({
 
                       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
                         <span>Solicitado: {formatDate(fund.created_at)}</span>
-                        {fund.date_assigned && <span>Depositado: {formatDate(fund.date_assigned)}</span>}
+                        {fund.date_assigned && (
+                          <span>
+                            {hasDepositReceipt ? "🏦 Transferido: " : "💵 Entregado en Efectivo: "}
+                            {formatDate(fund.date_assigned)}
+                          </span>
+                        )}
+                        {fund.deposit_note && (
+                          <span className="italic text-foreground/80">
+                            · Nota: {fund.deposit_note}
+                          </span>
+                        )}
                         {fund.status === "active" && spentAmount > 0 && (
                           <span className="text-amber-700 dark:text-amber-400 font-medium">
                             Rendido hasta hoy: {formatClp(spentAmount)}
