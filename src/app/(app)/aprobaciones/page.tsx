@@ -1,7 +1,7 @@
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { formatClp, formatDate, FUND_STATUS_CONFIG, REPORT_STATUS_CONFIG } from "@/lib/format";
-import { ApproveFundModal, DepositFundModal, RejectFundModal, ExpenseApprovalItem, SettleReimbursementModal, GroupedSettleReimbursementModal } from "./approval-components";
+import { ApproveFundModal, DepositFundModal, RejectFundModal, ExpenseApprovalItem, SettleReimbursementModal, CollaboratorReimbursementCard } from "./approval-components";
 import { resolveReport } from "./actions";
 import { ClipboardCheck, Wallet, Receipt, History, AlertCircle, CheckCircle2 } from "lucide-react";
 import { getSignedFileUrl } from "@/lib/supabase/storage";
@@ -514,57 +514,13 @@ export default async function AprobacionesPage({
                 <div className="divide-y divide-border">
                   {groupedReimbursementsList.map((group) => {
                     const fullName = group.user_profile?.full_name || group.user_profile?.email || "Colaborador";
-                    const initial = fullName.charAt(0).toUpperCase();
-
                     return (
-                      <div key={group.user_id} className="py-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="space-y-2 max-w-xl">
-                          <div className="flex items-center gap-2">
-                            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-100 text-blue-700 font-bold text-xs dark:bg-blue-950 dark:text-blue-300">
-                              {initial}
-                            </span>
-                            <span className="font-bold text-sm text-foreground">
-                              {fullName}
-                            </span>
-                            {group.user_profile?.email && (
-                              <span className="text-xs text-muted-foreground">
-                                · {group.user_profile.email}
-                              </span>
-                            )}
-                            <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-bold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                              ✓ {group.reports.length} {group.reports.length === 1 ? "reembolso aprobado" : "reembolsos aprobados"}
-                            </span>
-                          </div>
-
-                          {/* Listado resumido de los reembolsos incluidos de esta persona */}
-                          <div className="pl-9 space-y-1">
-                            {group.reports.map((r) => (
-                              <div key={r.id} className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
-                                <span className="text-foreground font-medium">• {r.title}</span>
-                                <span className="font-semibold text-blue-600 dark:text-blue-400">({formatClp(r.total_amount)})</span>
-                                <span className="text-[11px] opacity-75">· Prov: {r.supplier_name}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-
-                        <div className="flex flex-col sm:items-end gap-3 shrink-0">
-                          <div className="text-left sm:text-right">
-                            <span className="block text-[11px] uppercase text-muted-foreground font-semibold">
-                              Monto Total Acumulado
-                            </span>
-                            <span className="text-xl font-extrabold text-blue-600 dark:text-blue-400">
-                              {formatClp(group.total_amount)}
-                            </span>
-                          </div>
-
-                          <GroupedSettleReimbursementModal
-                            solicitante={fullName}
-                            collaboratorEmail={group.user_profile?.email}
-                            reports={group.reports}
-                          />
-                        </div>
-                      </div>
+                      <CollaboratorReimbursementCard
+                        key={group.user_id}
+                        solicitante={fullName}
+                        collaboratorEmail={group.user_profile?.email}
+                        reports={group.reports}
+                      />
                     );
                   })}
                 </div>

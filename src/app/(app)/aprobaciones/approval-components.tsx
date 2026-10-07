@@ -1143,7 +1143,7 @@ export function SettleReimbursementModal({
 }
 
 /* -------------------------------------------------------------------------
-   6. Modal de Liquidación Agrupada de Reembolsos por Colaborador
+   6. Tarjeta de Colaborador con Selector Interactivo y Liquidación en Lote
    ------------------------------------------------------------------------- */
 export type CollaboratorReimbursementItem = {
   id: string;
@@ -1154,7 +1154,7 @@ export type CollaboratorReimbursementItem = {
   supplier_name?: string | null;
 };
 
-export function GroupedSettleReimbursementModal({
+export function CollaboratorReimbursementCard({
   solicitante,
   collaboratorEmail,
   reports,
@@ -1164,8 +1164,8 @@ export function GroupedSettleReimbursementModal({
   reports: CollaboratorReimbursementItem[];
 }) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>(() => reports.map((r) => r.id));
+  const [modalOpen, setModalOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<"transfer" | "cash">("transfer");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
@@ -1176,16 +1176,7 @@ export function GroupedSettleReimbursementModal({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // Sincronizar selección inicial al abrir
-  const handleOpen = () => {
-    setSelectedIds(reports.map((r) => r.id));
-    setSelectedFile(null);
-    setFileName(null);
-    setPreviewUrl(null);
-    setPaymentNote("");
-    setErrorMessage(null);
-    setOpen(true);
-  };
+  const initial = (solicitante || "U").charAt(0).toUpperCase();
 
   const toggleSelectAll = () => {
     if (selectedIds.length === reports.length) {
@@ -1270,7 +1261,7 @@ export function GroupedSettleReimbursementModal({
 
       const res = await settleMultipleReimbursementsWithProof(fd);
       if (res.success) {
-        setOpen(false);
+        setModalOpen(false);
         router.push("/aprobaciones?success=reembolsos_agrupados_pagados");
         router.refresh();
       } else {
@@ -1284,17 +1275,108 @@ export function GroupedSettleReimbursementModal({
   };
 
   return (
-    <>
-      <button
-        type="button"
-        onClick={handleOpen}
-        className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-brand-600 active:scale-95"
-      >
-        <Receipt size={15} />
-        Pagar y Liquidar Reembolsos
-      </button>
+    <div className="py-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      {/* Columna Izquierda: Información del colaborador y selector de reembolsos */}
+      <div className="space-y-3 max-w-xl flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-100 text-blue-700 font-bold text-xs dark:bg-blue-950 dark:text-blue-300">
+            {initial}
+          </span>
+          <span className="font-bold text-sm text-foreground">
+            {solicitante}
+          </span>
+          {collaboratorEmail && (
+            <span className="text-xs text-muted-foreground">
+              · {collaboratorEmail}
+            </span>
+          )}
+          <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-bold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+            ✓ {reports.length} {reports.length === 1 ? "reembolso aprobado" : "reembolsos aprobados"}
+          </span>
+          {reports.length > 1 && (
+            <button
+              type="button"
+              onClick={toggleSelectAll}
+              className="text-xs font-semibold text-primary hover:underline ml-1 cursor-pointer"
+            >
+              {selectedIds.length === reports.length ? "Desmarcar todos" : "Seleccionar todos"}
+            </button>
+          )}
+        </div>
 
-      {open && (
+        {/* Listado con selector interactivo DIRECTO en la tarjeta */}
+        <div className="pl-1 sm:pl-9 space-y-1.5">
+          {reports.map((r) => {
+            const isChecked = selectedIds.includes(r.id);
+            return (
+              <div
+                key={r.id}
+                onClick={() => toggleItem(r.id)}
+                className={`flex items-center justify-between gap-3 rounded-xl border p-2.5 text-xs transition cursor-pointer select-none ${
+                  isChecked
+                    ? "border-primary/50 bg-blue-50/70 dark:border-primary/60 dark:bg-blue-950/40 text-foreground shadow-xs"
+                    : "border-border/60 bg-muted/20 text-muted-foreground hover:bg-muted/40 opacity-70"
+                }`}
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className={`shrink-0 ${isChecked ? "text-primary" : "text-muted-foreground"}`}>
+                    {isChecked ? (
+                      <CheckSquare size={17} className="text-primary" />
+                    ) : (
+                      <Square size={17} className="text-muted-foreground" />
+                    )}
+                  </span>
+                  <div className="min-w-0">
+                    <span className="font-semibold truncate block text-foreground">
+                      {r.title}
+                    </span>
+                    <span className="text-[11px] text-muted-foreground truncate block">
+                      {formatDate(r.created_at)} · {r.expenses_count} {r.expenses_count === 1 ? "gasto" : "gastos"} · Prov: {r.supplier_name || "Varios"}
+                    </span>
+                  </div>
+                </div>
+                <div className="shrink-0 text-right">
+                  <span className={`font-bold text-sm ${isChecked ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground"}`}>
+                    {formatClp(r.total_amount)}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Columna Derecha: Monto calculado dinámicamente y botón de acción */}
+      <div className="flex flex-col sm:items-end gap-3 shrink-0">
+        <div className="text-left sm:text-right">
+          <span className="block text-[11px] uppercase text-muted-foreground font-semibold">
+            {selectedIds.length === reports.length
+              ? "Monto Total Acumulado"
+              : `Total Seleccionado (${selectedIds.length}/${reports.length})`}
+          </span>
+          <span className="text-xl font-extrabold text-blue-600 dark:text-blue-400">
+            {formatClp(selectedTotal)}
+          </span>
+        </div>
+
+        <button
+          type="button"
+          disabled={selectedIds.length === 0}
+          onClick={() => {
+            setErrorMessage(null);
+            setModalOpen(true);
+          }}
+          className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-brand-600 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+        >
+          <Receipt size={15} />
+          {selectedIds.length === 0
+            ? "Selecciona reembolsos"
+            : `Pagar y Liquidar (${selectedIds.length}) · ${formatClp(selectedTotal)}`}
+        </button>
+      </div>
+
+      {/* Modal de Pago y Subida de Comprobante para los reembolsos seleccionados */}
+      {modalOpen && (
         <div
           onPaste={handlePaste}
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-in fade-in"
@@ -1305,13 +1387,13 @@ export function GroupedSettleReimbursementModal({
               <div className="space-y-0.5">
                 <h2 className="text-base font-bold">Liquidar Reembolsos de {solicitante}</h2>
                 <p className="text-xs text-muted-foreground">
-                  Selecciona los reembolsos a pagar y registra el comprobante de pago consolidado.
+                  Se liquidarán <strong>{selectedIds.length}</strong> de <strong>{reports.length}</strong> reembolsos por un total de <strong>{formatClp(selectedTotal)}</strong>.
                 </p>
               </div>
               <button
                 type="button"
                 disabled={isPending}
-                onClick={() => setOpen(false)}
+                onClick={() => setModalOpen(false)}
                 className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
               >
                 <X size={20} />
@@ -1326,73 +1408,30 @@ export function GroupedSettleReimbursementModal({
                 </div>
               )}
 
-              {/* Fila de Selección múltiple */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                    Reembolsos Pendientes ({reports.length})
-                  </span>
-                  <button
-                    type="button"
-                    onClick={toggleSelectAll}
-                    className="text-xs font-semibold text-primary hover:underline"
-                  >
-                    {selectedIds.length === reports.length ? "Desmarcar todos" : "Seleccionar todos"}
-                  </button>
+              {/* Resumen de los seleccionados */}
+              <div className="rounded-xl border border-border bg-background p-3 space-y-2">
+                <div className="flex items-center justify-between text-xs font-semibold text-muted-foreground">
+                  <span>Reembolsos a Liquidar:</span>
+                  <span className="text-primary font-bold">{selectedIds.length} seleccionados</span>
                 </div>
-
-                <div className="divide-y divide-border rounded-xl border border-border bg-background">
-                  {reports.map((rep) => {
-                    const isChecked = selectedIds.includes(rep.id);
-                    return (
-                      <div
-                        key={rep.id}
-                        onClick={() => toggleItem(rep.id)}
-                        className={`flex items-center justify-between p-3 cursor-pointer transition select-none ${
-                          isChecked ? "bg-primary/5 dark:bg-primary/10" : "hover:bg-muted/40"
-                        }`}
-                      >
-                        <div className="flex items-start gap-3">
-                          <button
-                            type="button"
-                            className="mt-0.5 text-primary"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              toggleItem(rep.id);
-                            }}
-                          >
-                            {isChecked ? (
-                              <CheckSquare size={18} className="text-primary" />
-                            ) : (
-                              <Square size={18} className="text-muted-foreground" />
-                            )}
-                          </button>
-                          <div>
-                            <p className="text-xs font-bold text-foreground">{rep.title}</p>
-                            <p className="text-[11px] text-muted-foreground">
-                              {formatDate(rep.created_at)} · {rep.expenses_count} {rep.expenses_count === 1 ? "gasto" : "gastos"} · Prov: {rep.supplier_name}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <span className={`text-sm font-bold ${isChecked ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground"}`}>
-                            {formatClp(rep.total_amount)}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
+                <div className="space-y-1">
+                  {selectedReports.map((r) => (
+                    <div key={r.id} className="flex items-center justify-between text-xs">
+                      <span className="text-foreground font-medium">• {r.title}</span>
+                      <span className="font-bold text-blue-600 dark:text-blue-400">{formatClp(r.total_amount)}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
 
-              {/* Tarjeta de Resumen y Cálculo Dinámico */}
+              {/* Tarjeta de Total a Transferir */}
               <div className="rounded-xl border border-blue-200 bg-blue-50/80 p-4 dark:border-blue-900/50 dark:bg-blue-950/30 flex items-center justify-between">
                 <div>
                   <span className="block text-xs font-bold text-blue-900 dark:text-blue-300">
                     Total Consolidado a Transferir
                   </span>
                   <span className="text-[11px] text-blue-700/90 dark:text-blue-400">
-                    {selectedIds.length} de {reports.length} informes seleccionados
+                    {selectedIds.length} informe(s) a saldar
                   </span>
                 </div>
                 <div className="text-right">
@@ -1539,7 +1578,7 @@ export function GroupedSettleReimbursementModal({
                 <button
                   type="button"
                   disabled={isPending}
-                  onClick={() => setOpen(false)}
+                  onClick={() => setModalOpen(false)}
                   className="rounded-xl border border-border px-3.5 py-2 text-xs font-semibold hover:bg-muted disabled:opacity-50"
                 >
                   Cancelar
@@ -1556,7 +1595,7 @@ export function GroupedSettleReimbursementModal({
                       Registrando Pago...
                     </>
                   ) : (
-                    `Confirmar Pago (${selectedIds.length})`
+                    `Confirmar Pago (${selectedIds.length}) · ${formatClp(selectedTotal)}`
                   )}
                 </button>
               </div>
@@ -1564,7 +1603,11 @@ export function GroupedSettleReimbursementModal({
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 }
+
+// Alias para retrocompatibilidad
+export const GroupedSettleReimbursementModal = CollaboratorReimbursementCard;
+
 
