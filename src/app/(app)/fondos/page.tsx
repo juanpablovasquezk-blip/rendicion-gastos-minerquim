@@ -2,6 +2,7 @@ import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { formatClp, formatDate, FUND_STATUS_CONFIG, REPORT_STATUS_CONFIG } from "@/lib/format";
 import { NewFundModal } from "./new-fund-modal";
+import { CloseFundModal } from "./close-fund-modal";
 import { cancelFund } from "./actions";
 import { Wallet, AlertCircle, CheckCircle2, FileText, ArrowUpRight, Ban, HandCoins, Plus, Building2, User, Users, ClipboardCheck } from "lucide-react";
 import Link from "next/link";
@@ -19,7 +20,7 @@ export default async function FondosPage({
 
   const isGeneralManager = profile.role === "general_manager";
   const isManagement = profile.role === "admin" || profile.role === "general_manager" || profile.role === "manager";
-  const currentView = isManagement ? (view || "empresa") : "personal";
+  const currentView = isManagement ? (view || "personal") : "personal";
 
   const sb = await createClient();
 
@@ -115,7 +116,7 @@ export default async function FondosPage({
                 <Plus size={16} />
                 Rendir Gasto / Reembolso
               </Link>
-              <NewFundModal />
+              <NewFundModal userCreditBalance={Number(profile.credit_balance || 0)} />
             </>
           )}
           {isGeneralManager && (
@@ -130,20 +131,9 @@ export default async function FondosPage({
         </div>
       </div>
 
-      {/* Selector de Vista para Gerencia (Empresa vs Personal) */}
+      {/* Selector de Vista para Gerencia (Personal vs Empresa) */}
       {isManagement && (
         <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-border bg-surface p-1.5 shadow-sm max-w-md">
-          <Link
-            href={`/fondos?view=empresa&tab=${currentTab}`}
-            className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-2 text-xs font-bold transition ${
-              currentView === "empresa"
-                ? "bg-primary text-white shadow"
-                : "text-muted-foreground hover:bg-muted hover:text-foreground"
-            }`}
-          >
-            <Building2 size={15} />
-            Todos los Fondos Empresa
-          </Link>
           <Link
             href={`/fondos?view=personal&tab=${currentTab}`}
             className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-2 text-xs font-bold transition ${
@@ -154,6 +144,17 @@ export default async function FondosPage({
           >
             <User size={15} />
             Mis Fondos Personales
+          </Link>
+          <Link
+            href={`/fondos?view=empresa&tab=${currentTab}`}
+            className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-2 text-xs font-bold transition ${
+              currentView === "empresa"
+                ? "bg-primary text-white shadow"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+            }`}
+          >
+            <Building2 size={15} />
+            Todos los Fondos Empresa
           </Link>
         </div>
       )}
@@ -400,12 +401,18 @@ export default async function FondosPage({
                         )}
 
                         {fund.status === "active" && (
-                          <Link
-                            href={`/gastos/nuevo?fund_id=${fund.id}`}
-                            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-brand-600"
-                          >
-                            Rendir Gasto
-                          </Link>
+                          <>
+                            <CloseFundModal
+                              fund={fund}
+                              userPendingReimbursementsTotal={totalReimbursementOwed}
+                            />
+                            <Link
+                              href={`/gastos/nuevo?fund_id=${fund.id}`}
+                              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-brand-600 active:scale-95"
+                            >
+                              Rendir Gasto
+                            </Link>
+                          </>
                         )}
 
                         {fund.status === "requested" && fund.user_id === profile.id && (

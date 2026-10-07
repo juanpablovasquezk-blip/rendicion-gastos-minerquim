@@ -191,12 +191,16 @@ export function DepositFundModal({
   amount,
   purpose,
   companyName,
+  appliedCredit = 0,
+  netDepositAmount,
 }: {
   fundId: string;
   solicitante: string;
   amount: number;
   purpose: string;
   companyName: string;
+  appliedCredit?: number;
+  netDepositAmount?: number;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -327,7 +331,20 @@ export function DepositFundModal({
             <div className="mt-4 rounded-xl border border-border bg-background p-3.5 space-y-1 text-xs text-muted-foreground">
               <p><strong className="text-foreground">Destinatario:</strong> {solicitante}</p>
               <p><strong className="text-foreground">Empresa:</strong> {companyName}</p>
-              <p><strong className="text-foreground">Monto a Entregar:</strong> <span className="text-primary font-bold text-sm">{formatClp(amount)}</span></p>
+              <p><strong className="text-foreground">Monto Total Fondo:</strong> <span className="text-primary font-bold text-sm">{formatClp(amount)}</span></p>
+              {appliedCredit > 0 && (
+                <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 p-2 my-1 text-xs space-y-0.5">
+                  <p className="text-amber-900 dark:text-amber-300">
+                    <strong>Abono de saldo acumulado anterior:</strong> {formatClp(appliedCredit)}
+                  </p>
+                  <p className="font-bold text-foreground">
+                    Monto neto a transferir/entregar hoy:{" "}
+                    <span className="text-emerald-600 dark:text-emerald-400 font-extrabold text-sm">
+                      {formatClp(netDepositAmount != null ? netDepositAmount : amount - appliedCredit)}
+                    </span>
+                  </p>
+                </div>
+              )}
               <p><strong className="text-foreground">Motivo:</strong> {purpose}</p>
             </div>
 

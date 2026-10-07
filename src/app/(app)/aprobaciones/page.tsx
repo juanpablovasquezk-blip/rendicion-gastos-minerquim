@@ -278,6 +278,8 @@ export default async function AprobacionesPage({
                               amount={amountToTransfer}
                               purpose={fund.purpose}
                               companyName={fund.companies?.name || "Empresa"}
+                              appliedCredit={fund.applied_credit}
+                              netDepositAmount={fund.net_deposit_amount}
                             />
                           </div>
                         </div>

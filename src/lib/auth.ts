@@ -12,6 +12,8 @@ export type Profile = {
   email: string;
   role: UserRole;
   is_active: boolean;
+  credit_balance?: number;
+  phone?: string | null;
 };
 
 /** Perfil del usuario autenticado (una consulta por request). */
@@ -23,7 +25,7 @@ export const getProfile = cache(async (): Promise<Profile | null> => {
   if (!user) return null;
   const { data } = await supabase
     .from("profiles")
-    .select("id, full_name, email, role, is_active")
+    .select("id, full_name, email, role, is_active, credit_balance, phone")
     .eq("id", user.id)
     .single();
   return (data as Profile | null) ?? null;

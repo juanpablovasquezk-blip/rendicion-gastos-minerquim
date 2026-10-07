@@ -1,12 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, X, Wallet } from "lucide-react";
+import { Plus, X, Wallet, Coins } from "lucide-react";
 import { requestFund } from "./actions";
+import { formatClp } from "@/lib/format";
 
-export function NewFundModal() {
+export function NewFundModal({ userCreditBalance = 0 }: { userCreditBalance?: number }) {
   const [open, setOpen] = useState(false);
   const [amountStr, setAmountStr] = useState("");
+
+  const numAmount = Number(amountStr.replace(/\D/g, "")) || 0;
+  const appliedCredit = Math.min(userCreditBalance, numAmount);
+  const netDeposit = Math.max(0, numAmount - appliedCredit);
 
   const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const raw = e.target.value.replace(/\D/g, "");
@@ -72,6 +77,19 @@ export function NewFundModal() {
                   />
                 </div>
               </label>
+
+              {userCreditBalance > 0 && numAmount > 0 && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-3 text-xs text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200 space-y-1.5">
+                  <div className="flex items-center gap-2 font-bold text-amber-900 dark:text-amber-300">
+                    <Coins size={15} />
+                    <span>Abono de saldo acumulado anterior: {formatClp(appliedCredit)}</span>
+                  </div>
+                  <p className="text-[11px] leading-relaxed">
+                    Tienes <strong>{formatClp(userCreditBalance)}</strong> de saldo a favor de la empresa de un fondo anterior.
+                    Al solicitar este fondo por {formatClp(numAmount)}, se abonarán automáticamente {formatClp(appliedCredit)} y Gerencia General solo tendrá que transferirte <strong>{formatClp(netDeposit)}</strong>.
+                  </p>
+                </div>
+              )}
 
               <label className="block">
                 <span className="mb-1.5 block text-xs font-semibold text-muted-foreground">

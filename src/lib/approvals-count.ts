@@ -31,51 +31,55 @@ export async function getPendingApprovalsSummary(
     // 2. Informes de gastos / rendiciones pendientes
     const { data: submittedReports } = await sb
       .from("expense_reports")
-      .select("id, status, report_type, user_id")
+      .select("id, status, report_type, user_id, needs_gm")
       .in("status", ["submitted", "partially_approved", "approved"]);
 
     let fundsCount = 0;
     let reportsCount = 0;
 
     if (role === "admin") {
+      // Gerencia de Operaciones revisa solicitudes de fondos iniciales e informes de colaboradores
       const fondosOperaciones = (pendingFunds || []).filter(
-        (f) => f.status === "requested" && (f.approval_stage === "admin" || f.approval_stage === "manager")
+        (f) =>
+          f.status === "requested" &&
+          (f.approval_stage === "admin" || f.approval_stage === "manager") &&
+          (!userId || f.user_id !== userId)
       );
-      const fondosGM = (pendingFunds || []).filter(
-        (f) => f.status === "approved" || f.approval_stage === "general_manager"
-      );
-      const rendiciones = (submittedReports || []).filter(
-        (r) => r.status === "submitted" || r.status === "partially_approved"
-      );
-      const reembolsos = (submittedReports || []).filter(
-        (r) => r.status === "approved" && r.report_type === "reimbursement"
+      const rendicionesOperaciones = (submittedReports || []).filter(
+        (r) =>
+          (r.status === "submitted" || r.status === "partially_approved") &&
+          (!userId || r.user_id !== userId)
       );
 
-      fundsCount = fondosOperaciones.length + fondosGM.length;
-      reportsCount = rendiciones.length + reembolsos.length;
+      fundsCount = fondosOperaciones.length;
+      reportsCount = rendicionesOperaciones.length;
     } else if (role === "general_manager") {
+      // Gerencia General gestiona depósitos de fondos y pagos de reembolsos autorizados
       const fondosGM = (pendingFunds || []).filter(
         (f) => f.status === "approved" || f.approval_stage === "general_manager"
       );
-      const reembolsos = (submittedReports || []).filter(
+      const reembolsosGM = (submittedReports || []).filter(
         (r) => r.status === "approved" && r.report_type === "reimbursement"
       );
-      const rendiciones = (submittedReports || []).filter(
-        (r) => r.status === "submitted" || r.status === "partially_approved"
+      const rendicionesGM = (submittedReports || []).filter(
+        (r) => (r.status === "submitted" || r.status === "partially_approved") && r.needs_gm
       );
 
       fundsCount = fondosGM.length;
-      reportsCount = rendiciones.length + reembolsos.length;
+      reportsCount = reembolsosGM.length + rendicionesGM.length;
     } else if (role === "manager") {
-      const fondos = (pendingFunds || []).filter(
-        (f) => f.status === "requested" && f.approval_stage === "manager"
+      // Jefaturas revisan solicitudes de su área
+      const fondosManager = (pendingFunds || []).filter(
+        (f) => f.status === "requested" && f.approval_stage === "manager" && (!userId || f.user_id !== userId)
       );
-      const rendiciones = (submittedReports || []).filter(
-        (r) => r.status === "submitted" || r.status === "partially_approved"
+      const rendicionesManager = (submittedReports || []).filter(
+        (r) =>
+          (r.status === "submitted" || r.status === "partially_approved") &&
+          (!userId || r.user_id !== userId)
       );
 
-      fundsCount = fondos.length;
-      reportsCount = rendiciones.length;
+      fundsCount = fondosManager.length;
+      reportsCount = rendicionesManager.length;
     }
 
     return {
