@@ -26,6 +26,24 @@ export function formatRut(rut: string | null | undefined): string {
   return `${new Intl.NumberFormat("es-CL").format(Number(num))}-${dv}`;
 }
 
+/** Valida si un RUT chileno cumple con el algoritmo Módulo 11 */
+export function isValidRut(rut: string | null | undefined): boolean {
+  if (!rut) return false;
+  const clean = rut.replace(/[^0-9kK]/g, "");
+  if (clean.length < 2 || clean.length > 9) return false;
+  const body = clean.slice(0, -1);
+  const dv = clean.slice(-1).toUpperCase();
+  let total = 0;
+  let mul = 2;
+  for (let i = body.length - 1; i >= 0; i--) {
+    total += Number(body[i]) * mul;
+    mul = mul === 7 ? 2 : mul + 1;
+  }
+  const calc = 11 - (total % 11);
+  const expected = calc === 11 ? "0" : calc === 10 ? "K" : String(calc);
+  return expected === dv;
+}
+
 /** Limpia y normaliza RUT para almacenamiento (12345678-K) */
 export function normalizeRut(rut: string): string {
   const clean = rut.replace(/[^0-9kK]/g, "");

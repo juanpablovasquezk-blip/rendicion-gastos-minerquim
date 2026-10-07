@@ -170,16 +170,49 @@ export async function saveExpenseAction(f: FormData): Promise<SaveExpenseResult>
       receipt_path: receiptPath,
       receipt_hash: receiptHash,
       total_amount: totalAmount,
-      tax_amount: taxAmount || 0,
+      tax_amount: Math.min(taxAmount || 0, totalAmount),
       description: description || null,
       justification: justification || null,
     });
 
     if (expenseErr) {
+      console.warn("Aviso al insertar gasto:", expenseErr.message, expenseErr.code);
       if (expenseErr.code === "23514") {
+        // Reintentar sin supplier_rut para no bloquear documentos municipales, partes o números especiales
+        const fallbackName = supplierName
+          ? (supplierRutRaw ? `${supplierName} (${supplierRutRaw})` : supplierName)
+          : (supplierRutRaw || null);
+
+        const { error: retryErr } = await sb.from("expenses").insert({
+          report_id: reportId,
+          user_id: profile.id,
+          company_id: companyId,
+          department_id: departmentId,
+          category_id: categoryId,
+          receipt_type_id: receiptTypeId,
+          date: expenseDate,
+          supplier_name: fallbackName,
+          supplier_rut: null,
+          invoice_number: invoiceNumber || null,
+          has_receipt: requiresReceipt,
+          receipt_path: receiptPath,
+          receipt_hash: receiptHash,
+          total_amount: totalAmount,
+          tax_amount: Math.min(taxAmount || 0, totalAmount),
+          description: description || null,
+          justification: justification || null,
+        });
+
+        if (!retryErr) {
+          revalidatePath("/gastos");
+          revalidatePath("/fondos");
+          revalidatePath("/dashboard");
+          return { success: true };
+        }
+
         return {
           success: false,
-          error: "Verifica el RUT ingresado o los montos. El RUT debe tener formato válido con dígito verificador.",
+          error: `Error en los datos del gasto: ${retryErr.message}`,
         };
       }
       return { success: false, error: `Error al registrar el gasto: ${expenseErr.message}` };
