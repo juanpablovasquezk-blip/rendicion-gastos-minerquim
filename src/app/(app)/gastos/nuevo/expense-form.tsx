@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Camera, Upload, AlertTriangle, FileText, CheckCircle2, Sparkles, Loader2, WifiOff, Save } from "lucide-react";
-import { addExpense } from "../actions";
+import { Camera, Upload, AlertTriangle, FileText, CheckCircle2, Sparkles, Loader2, WifiOff, Save, AlertCircle } from "lucide-react";
+import { saveExpenseAction } from "../actions";
 import { formatRut } from "@/lib/format";
 import { cacheCatalogs, getCachedCatalogs, saveOfflineExpense } from "@/lib/offline-expenses";
 import Image from "next/image";
@@ -45,6 +45,8 @@ export function ExpenseForm({
   const [activeFunds, setActiveFunds] = useState<ActiveFund[]>(initialActiveFunds);
 
   const [isOnline, setIsOnline] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [offlineSavedSuccess, setOfflineSavedSuccess] = useState(false);
   const [selectedFileObj, setSelectedFileObj] = useState<File | null>(null);
 
@@ -285,18 +287,46 @@ export function ExpenseForm({
     }
   };
 
-  // Guardado sin conexión en terreno (IndexedDB)
+  // Guardado de gasto con validación inmediata y soporte offline/online
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setSubmitError(null);
+
+    const cleanTotal = Number(totalStr.replace(/\D/g, ""));
+    const cleanTax = Number(taxStr.replace(/\D/g, "")) || 0;
+
+    if (!selectedCompanyId) {
+      setSubmitError("Debes seleccionar la empresa a cuyo nombre se hizo la compra.");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+    if (!selectedDepartmentId) {
+      setSubmitError("Debes seleccionar el Área / Centro de Costo.");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+    if (!selectedCategoryId) {
+      setSubmitError("Debes seleccionar la categoría del gasto.");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+    if (!selectedReceiptTypeId) {
+      setSubmitError("Debes seleccionar el tipo de comprobante.");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+    if (!cleanTotal || cleanTotal <= 0) {
+      setSubmitError("Por favor ingresa un monto total válido mayor a $0.");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+    if (reportType === "fund_rendition" && !selectedFundId) {
+      setSubmitError("Debes seleccionar un fondo activo para esta rendición.");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+
     if (!isOnline) {
-      e.preventDefault();
-      const cleanTotal = Number(totalStr.replace(/\D/g, ""));
-      const cleanTax = Number(taxStr.replace(/\D/g, "")) || 0;
-
-      if (!cleanTotal || cleanTotal <= 0) {
-        alert("Por favor ingresa un monto total válido.");
-        return;
-      }
-
       let receiptBase64: string | undefined = undefined;
       if (selectedFileObj) {
         const reader = new FileReader();
@@ -335,6 +365,53 @@ export function ExpenseForm({
       });
 
       setOfflineSavedSuccess(true);
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const formData = new FormData();
+      formData.append("report_type", reportType);
+      if (reportType === "fund_rendition" && selectedFundId) {
+        formData.append("fund_id", selectedFundId);
+      }
+      formData.append("company_id", selectedCompanyId);
+      formData.append("department_id", selectedDepartmentId);
+      formData.append("category_id", selectedCategoryId);
+      formData.append("receipt_type_id", selectedReceiptTypeId);
+      formData.append("date", dateStr);
+      formData.append("total_amount", String(cleanTotal));
+      formData.append("tax_amount", String(cleanTax));
+      if (rutInput) formData.append("supplier_rut", rutInput);
+      if (supplierName) formData.append("supplier_name", supplierName);
+      if (invoiceNumber) formData.append("invoice_number", invoiceNumber);
+      if (description) formData.append("description", description);
+
+      const formEl = e.currentTarget;
+      const justInput = formEl.elements.namedItem("justification") as HTMLTextAreaElement | null;
+      if (justInput?.value) {
+        formData.append("justification", justInput.value);
+      }
+
+      if (selectedFileObj) {
+        formData.append("receipt_file", selectedFileObj);
+      }
+
+      const res = await saveExpenseAction(formData);
+
+      if (res.success) {
+        router.push("/gastos?success=gasto_agregado");
+        router.refresh();
+      } else {
+        setSubmitError(res.error || "Ocurrió un error al guardar el gasto.");
+        setIsSubmitting(false);
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+    } catch (err: any) {
+      console.error("Error guardando gasto:", err);
+      setSubmitError(err?.message || "Error inesperado de red al guardar el gasto.");
+      setIsSubmitting(false);
+      window.scrollTo({ top: 0, behavior: "smooth" });
     }
   };
 
@@ -384,7 +461,18 @@ export function ExpenseForm({
   }
 
   return (
-    <form action={addExpense} onSubmit={handleSubmit} onPaste={handlePaste} className="space-y-6">
+    <form onSubmit={handleSubmit} onPaste={handlePaste} className="space-y-6">
+      {/* Banner de Error en Guardado sin perder datos */}
+      {submitError && (
+        <div className="flex items-center gap-3 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800 dark:border-rose-900/50 dark:bg-rose-950/40 dark:text-rose-300 shadow-sm animate-shake">
+          <AlertCircle size={22} className="shrink-0 text-rose-600 dark:text-rose-400" />
+          <div className="flex-1">
+            <p className="font-bold">No se pudo guardar el gasto:</p>
+            <p className="text-xs mt-0.5 opacity-90">{submitError}</p>
+          </div>
+        </div>
+      )}
+
       {/* Aviso Modo Offline si está desconectado */}
       {!isOnline && (
         <div className="flex items-center gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
@@ -830,10 +918,20 @@ export function ExpenseForm({
       <div className="flex justify-end gap-3">
         <button
           type="submit"
-          className="flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl bg-primary px-8 py-3 text-base font-bold text-white shadow-lg transition hover:bg-brand-600 active:scale-95"
+          disabled={isSubmitting}
+          className="flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl bg-primary px-8 py-3 text-base font-bold text-white shadow-lg transition hover:bg-brand-600 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {!isOnline && <Save size={18} />}
-          {isOnline ? "Guardar Gasto" : "Guardar en Terreno (Sin Conexión)"}
+          {isSubmitting ? (
+            <>
+              <Loader2 size={18} className="animate-spin" />
+              <span>Guardando Gasto...</span>
+            </>
+          ) : (
+            <>
+              {!isOnline && <Save size={18} />}
+              <span>{isOnline ? "Guardar Gasto" : "Guardar en Terreno (Sin Conexión)"}</span>
+            </>
+          )}
         </button>
       </div>
     </form>
