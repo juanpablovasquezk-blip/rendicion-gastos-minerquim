@@ -24,11 +24,9 @@ export async function requestFund(f: FormData) {
     fail("/fondos", "El rol de Gerencia General no está habilitado para solicitar fondos personales.");
   }
 
-  const company_id = str(f, "company_id");
   const purpose = str(f, "purpose");
   const requested_amount = money(f, "requested_amount");
 
-  if (!company_id) fail("/fondos", "Selecciona la empresa destinataria.");
   if (!purpose || purpose.length < 5) fail("/fondos", "Ingresa un motivo detallado (mínimo 5 caracteres).");
   if (!requested_amount || requested_amount <= 0) fail("/fondos", "Ingresa un monto válido.");
 
@@ -36,15 +34,11 @@ export async function requestFund(f: FormData) {
 
   const { error } = await sb.from("cash_advances").insert({
     user_id: profile.id,
-    company_id,
     purpose,
     requested_amount,
   });
 
   if (error) {
-    if (error.code === "42501") {
-      fail("/fondos", "No tienes permisos para solicitar fondos a nombre de esa empresa.");
-    }
     fail("/fondos", `Error al crear la solicitud: ${error.message}`);
   }
 

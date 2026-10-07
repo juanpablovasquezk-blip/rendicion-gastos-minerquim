@@ -19,7 +19,7 @@ export function ApproveFundModal({
   solicitante: string;
   requestedAmount: number;
   purpose: string;
-  companyName: string;
+  companyName?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [amountStr, setAmountStr] = useState(new Intl.NumberFormat("es-CL").format(requestedAmount));
@@ -85,7 +85,7 @@ export function ApproveFundModal({
 
             <div className="mt-4 rounded-xl border border-border bg-background p-3.5 space-y-1.5 text-xs text-muted-foreground">
               <p><strong className="text-foreground">Solicitante:</strong> {solicitante}</p>
-              <p><strong className="text-foreground">Empresa:</strong> {companyName}</p>
+              {companyName && <p><strong className="text-foreground">Empresa:</strong> {companyName}</p>}
               <p><strong className="text-foreground">Motivo:</strong> {purpose}</p>
               <p><strong className="text-foreground">Monto solicitado:</strong> {formatClp(requestedAmount)}</p>
             </div>

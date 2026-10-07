@@ -4,9 +4,7 @@ import { useState } from "react";
 import { Plus, X, Wallet } from "lucide-react";
 import { requestFund } from "./actions";
 
-type Company = { id: string; name: string };
-
-export function NewFundModal({ companies }: { companies: Company[] }) {
+export function NewFundModal() {
   const [open, setOpen] = useState(false);
   const [amountStr, setAmountStr] = useState("");
 
@@ -56,29 +54,6 @@ export function NewFundModal({ companies }: { companies: Company[] }) {
             <form action={requestFund} className="mt-5 space-y-4">
               <label className="block">
                 <span className="mb-1.5 block text-xs font-semibold text-muted-foreground">
-                  Empresa a la que se cargará el fondo
-                </span>
-                <select
-                  name="company_id"
-                  required
-                  className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-brand-200"
-                >
-                  <option value="">— Selecciona una empresa —</option>
-                  {companies.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-                {companies.length === 0 && (
-                  <p className="mt-1 text-xs text-rose-500">
-                    No tienes empresas asignadas. Solicita al administrador que te asigne una empresa.
-                  </p>
-                )}
-              </label>
-
-              <label className="block">
-                <span className="mb-1.5 block text-xs font-semibold text-muted-foreground">
                   Monto solicitado (CLP)
                 </span>
                 <div className="relative">
@@ -106,7 +81,7 @@ export function NewFundModal({ companies }: { companies: Company[] }) {
                   name="purpose"
                   rows={3}
                   required
-                  placeholder="Ej: Viáticos y compras de insumos para viaje a faena Minera El Peñón semana 42..."
+                  placeholder="Ej: Viáticos, compras de insumos para viaje a faena, gastos de terreno..."
                   className="w-full rounded-xl border border-border bg-background p-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-brand-200"
                 />
               </label>
@@ -121,8 +96,7 @@ export function NewFundModal({ companies }: { companies: Company[] }) {
                 </button>
                 <button
                   type="submit"
-                  disabled={companies.length === 0}
-                  className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white shadow transition hover:bg-brand-600 disabled:opacity-50"
+                  className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white shadow transition hover:bg-brand-600 active:scale-95"
                 >
                   Enviar Solicitud
                 </button>

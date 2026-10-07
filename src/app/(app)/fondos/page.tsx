@@ -115,7 +115,7 @@ export default async function FondosPage({
                 <Plus size={16} />
                 Rendir Gasto / Reembolso
               </Link>
-              <NewFundModal companies={companies} />
+              <NewFundModal />
             </>
           )}
           {isGeneralManager && (
