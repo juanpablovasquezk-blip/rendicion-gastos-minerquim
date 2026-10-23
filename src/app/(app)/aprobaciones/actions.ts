@@ -119,7 +119,7 @@ export async function depositFundByGM(f: FormData): Promise<ApprovalActionResult
 
     if (!fundId) return { success: false, error: "ID de fondo inválido." };
 
-    const sb = await createClient();
+    const adminSb = createAdminClient();
 
     let fileName: string | null = null;
 
@@ -136,7 +136,7 @@ export async function depositFundByGM(f: FormData): Promise<ApprovalActionResult
       const bytes = await depositFile.arrayBuffer();
       const buffer = Buffer.from(bytes);
 
-      const { error: uploadErr } = await sb.storage
+      const { error: uploadErr } = await adminSb.storage
         .from("deposits")
         .upload(fileName, buffer, {
           contentType: depositFile.type || "image/jpeg",
@@ -148,23 +148,23 @@ export async function depositFundByGM(f: FormData): Promise<ApprovalActionResult
       }
     }
 
-    // 2. Obtener fondo para saber monto, dueño y reembolsos vinculados
-    const { data: fund, error: fundErr } = await sb
+    // 2. Obtener fondo para saber monto, dueño y reembolsos vinculados (select * para compatibilidad total)
+    const { data: fund, error: fundErr } = await adminSb
       .from("cash_advances")
-      .select("approved_amount, requested_amount, user_id, purpose, reimbursements_bonus, linked_reimbursement_ids, net_deposit_amount")
+      .select("*")
       .eq("id", fundId)
       .single();
 
     if (fundErr || !fund) {
-      return { success: false, error: "No se encontró la solicitud de fondo en la base de datos." };
+      return { success: false, error: `No se encontró la solicitud de fondo: ${fundErr?.message || "Registro no existe"}` };
     }
 
     const amountToActivate = fund.approved_amount || fund.requested_amount || 0;
     const bonusReimbursements = Number(fund.reimbursements_bonus || 0);
-    const linkedReports = fund.linked_reimbursement_ids || [];
+    const linkedReports = Array.isArray(fund.linked_reimbursement_ids) ? fund.linked_reimbursement_ids : [];
 
     // 3. Activar el fondo en la base de datos
-    const { error } = await sb
+    const { error } = await adminSb
       .from("cash_advances")
       .update({
         status: "active",
@@ -184,7 +184,7 @@ export async function depositFundByGM(f: FormData): Promise<ApprovalActionResult
 
     // 4. Si el fondo incluía pago conjunto de reembolsos pendientes, liquidar esos informes
     if (linkedReports.length > 0) {
-      await sb
+      await adminSb
         .from("expense_reports")
         .update({
           status: "settled",
@@ -193,7 +193,7 @@ export async function depositFundByGM(f: FormData): Promise<ApprovalActionResult
         .in("id", linkedReports);
 
       for (const repId of linkedReports) {
-        await sb.from("approval_history").insert({
+        await adminSb.from("approval_history").insert({
           report_id: repId,
           subject_user_id: fund.user_id,
           approver_id: profile.id,
@@ -210,7 +210,7 @@ export async function depositFundByGM(f: FormData): Promise<ApprovalActionResult
         ? ` Incluye pago conjunto de ${formatClp(bonusReimbursements)} por reembolsos aprobados.`
         : "";
 
-    await sb.from("approval_history").insert({
+    await adminSb.from("approval_history").insert({
       fund_id: fundId,
       subject_user_id: fund.user_id,
       approver_id: profile.id,
@@ -261,15 +261,15 @@ export async function rejectFund(f: FormData): Promise<ApprovalActionResult> {
       return { success: false, error: "Debes ingresar un motivo claro de rechazo (mínimo 5 caracteres)." };
     }
 
-    const sb = await createClient();
+    const adminSb = createAdminClient();
 
-    const { data: fund } = await sb
+    const { data: fund } = await adminSb
       .from("cash_advances")
       .select("user_id, purpose")
       .eq("id", fundId)
       .single();
 
-    const { error } = await sb
+    const { error } = await adminSb
       .from("cash_advances")
       .update({
         status: "rejected",
@@ -282,7 +282,7 @@ export async function rejectFund(f: FormData): Promise<ApprovalActionResult> {
     }
 
     if (fund) {
-      await sb.from("approval_history").insert({
+      await adminSb.from("approval_history").insert({
         fund_id: fundId,
         subject_user_id: fund.user_id,
         approver_id: profile.id,
