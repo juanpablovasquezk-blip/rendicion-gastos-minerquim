@@ -67,7 +67,11 @@ export default async function FondosPage({
       *,
       companies(name),
       departments(name),
-      user_profile:user_id(id, full_name, email, phone)
+      user_profile:user_id(id, full_name, email, phone),
+      expense_reports(
+        id, status,
+        expenses(id, total_amount, status)
+      )
     `)
     .order("created_at", { ascending: false });
 
@@ -75,7 +79,29 @@ export default async function FondosPage({
     fundsQuery = fundsQuery.eq("user_id", profile.id);
   }
 
-  const { data: funds } = await fundsQuery;
+  const { data: fundsRaw } = await fundsQuery;
+
+  // Calcular saldo real disponible deduciendo todos los gastos registrados (incluyendo en borrador)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const computedFunds = ((fundsRaw || []) as any[]).map((fund) => {
+    const initialAmount = Number(fund.initial_amount || 0);
+    const reports = (fund.expense_reports || []) as any[];
+    const spentAmount = reports
+      .flatMap((r) => r.expenses || [])
+      .filter((e) => e.status !== "rejected")
+      .reduce((sum, e) => sum + Number(e.total_amount || 0), 0);
+
+    const realBalance =
+      fund.status === "active" && initialAmount > 0
+        ? initialAmount - spentAmount
+        : Number(fund.current_balance || 0);
+
+    return {
+      ...fund,
+      current_balance: realBalance,
+      spent_amount: spentAmount,
+    };
+  });
 
   // 3. Obtener reembolsos de dinero personal (Global empresa o Personal según vista)
   let reimbursementsQuery = sb
@@ -99,8 +125,8 @@ export default async function FondosPage({
   const { data: reimbursements } = await reimbursementsQuery;
 
   // Calcular métricas de los fondos
-  const activeFunds = funds?.filter((f) => f.status === "active") ?? [];
-  const requestedFunds = funds?.filter((f) => f.status === "requested" || f.status === "approved") ?? [];
+  const activeFunds = computedFunds.filter((f) => f.status === "active");
+  const requestedFunds = computedFunds.filter((f) => f.status === "requested" || f.status === "approved");
 
   const totalAvailableBalance = activeFunds.reduce((acc, f) => acc + Number(f.current_balance || 0), 0);
   const totalPendingAmount = requestedFunds.reduce((acc, f) => acc + Number(f.requested_amount || 0), 0);
@@ -122,9 +148,9 @@ export default async function FondosPage({
 
   // Obtener URLs firmadas de comprobantes de depósito si los hay
   const depositUrls: Record<string, string | null> = {};
-  if (funds) {
+  if (computedFunds) {
     await Promise.all(
-      funds
+      computedFunds
         .filter((f) => f.deposit_receipt_path)
         .map(async (f) => {
           depositUrls[f.id] = await getSignedFileUrl("deposits", f.deposit_receipt_path);
@@ -295,7 +321,7 @@ export default async function FondosPage({
           }`}
         >
           <Wallet size={16} />
-          Fondos por Rendir ({funds?.length ?? 0})
+          Fondos por Rendir ({computedFunds.length})
         </Link>
         <Link
           href={`/fondos?view=${currentView}&tab=reembolsos`}
@@ -315,12 +341,12 @@ export default async function FondosPage({
         <div className="rounded-2xl border border-border bg-surface p-5 shadow-sm space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-base font-bold">
-              {currentView === "empresa" ? `Todos los Fondos de la Empresa (${funds?.length ?? 0})` : `Mis Solicitudes y Fondos (${funds?.length ?? 0})`}
+              {currentView === "empresa" ? `Todos los Fondos de la Empresa (${computedFunds.length})` : `Mis Solicitudes y Fondos (${computedFunds.length})`}
             </h2>
             <span className="text-xs text-muted-foreground">Dinero entregado por la empresa para operar</span>
           </div>
 
-          {!funds || funds.length === 0 ? (
+          {computedFunds.length === 0 ? (
             <div className="py-12 text-center">
               <Wallet size={40} className="mx-auto text-muted-foreground/50" />
               <p className="mt-3 font-semibold">No hay fondos registrados en esta vista</p>
@@ -330,14 +356,14 @@ export default async function FondosPage({
             </div>
           ) : (
             <div className="divide-y divide-border">
-              {funds.map((fund) => {
+              {computedFunds.map((fund) => {
                 const statusCfg = FUND_STATUS_CONFIG[fund.status] || {
                   label: fund.status,
                   bg: "bg-gray-100",
                   text: "text-gray-700",
                 };
                 const hasDepositReceipt = !!depositUrls[fund.id];
-                const spentAmount = Number(fund.initial_amount || 0) - Number(fund.current_balance || 0);
+                const spentAmount = fund.spent_amount !== undefined ? fund.spent_amount : (Number(fund.initial_amount || 0) - Number(fund.current_balance || 0));
 
                 return (
                   <div key={fund.id} className="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between">
@@ -394,7 +420,7 @@ export default async function FondosPage({
                         )}
                         {fund.status === "active" && spentAmount > 0 && (
                           <span className="text-amber-700 dark:text-amber-400 font-medium">
-                            Rendido hasta hoy: {formatClp(spentAmount)}
+                            Rendido / Registrado hasta hoy: {formatClp(spentAmount)}
                           </span>
                         )}
                       </div>

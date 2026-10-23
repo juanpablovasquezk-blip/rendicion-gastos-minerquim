@@ -17,6 +17,8 @@ type ActiveFund = {
   id: string;
   purpose: string;
   current_balance: number;
+  initial_amount?: number;
+  spent_amount?: number;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   companies?: any;
 };
@@ -573,9 +575,16 @@ export function ExpenseForm({
               ))}
             </select>
             {selectedFund && (
-              <p className="mt-2 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                Saldo disponible actual en este fondo: ${new Intl.NumberFormat("es-CL").format(selectedFund.current_balance)}
-              </p>
+              <div className="mt-2 space-y-0.5">
+                <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                  Saldo disponible actual en este fondo: ${new Intl.NumberFormat("es-CL").format(selectedFund.current_balance)}
+                </p>
+                {selectedFund.spent_amount !== undefined && selectedFund.spent_amount > 0 && (
+                  <p className="text-[11px] text-muted-foreground">
+                    (Monto entregado: ${new Intl.NumberFormat("es-CL").format(selectedFund.initial_amount || 0)} · Gastos ya registrados: ${new Intl.NumberFormat("es-CL").format(selectedFund.spent_amount)})
+                  </p>
+                )}
+              </div>
             )}
           </div>
         )}

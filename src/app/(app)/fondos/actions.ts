@@ -202,10 +202,17 @@ export async function closeFundAction(f: FormData): Promise<CloseFundResult> {
 
     const sb = await createClient();
 
-    // 1. Obtener fondo activo
+    // 1. Obtener fondo activo con sus informes y gastos
     const { data: fund, error: fundErr } = await sb
       .from("cash_advances")
-      .select("*, user_profile:user_id(id, full_name, email)")
+      .select(`
+        *,
+        user_profile:user_id(id, full_name, email),
+        expense_reports(
+          id, status,
+          expenses(id, total_amount, status)
+        )
+      `)
       .eq("id", fundId)
       .single();
 
@@ -224,8 +231,33 @@ export async function closeFundAction(f: FormData): Promise<CloseFundResult> {
       return { success: false, error: "No tienes autorización para cerrar este fondo." };
     }
 
-    const balance = Number(fund.current_balance || 0);
     const adminSb = createAdminClient();
+
+    // Calcular el saldo real considerando todos los gastos registrados no rechazados
+    const initialAmount = Number(fund.initial_amount || 0);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const reports = (fund.expense_reports || []) as any[];
+    const totalSpent = reports
+      .flatMap((r) => r.expenses || [])
+      .filter((e) => e.status !== "rejected")
+      .reduce((sum, e) => sum + Number(e.total_amount || 0), 0);
+
+    const balance = initialAmount > 0 ? initialAmount - totalSpent : Number(fund.current_balance || 0);
+
+    // Auto-aprobar cualquier informe borrador asociado a este fondo al momento del cierre
+    const draftReportIds = reports.filter((r) => r.status === "draft").map((r) => r.id);
+    if (draftReportIds.length > 0) {
+      await adminSb
+        .from("expenses")
+        .update({ status: "approved" })
+        .in("report_id", draftReportIds)
+        .neq("status", "rejected");
+
+      await adminSb
+        .from("expense_reports")
+        .update({ status: "approved", approval_stage: "done" })
+        .in("id", draftReportIds);
+    }
 
     // =========================================================================
     // CASO 1: SALDO NEGATIVO (El colaborador gastó más de lo entregado)

@@ -181,9 +181,17 @@ export default async function GastosPage({
                         {statusCfg.label}
                       </span>
                     </div>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      Modalidad: {report.report_type === "fund_rendition" ? `Fondo por Rendir (${report.cash_advances?.purpose})` : "Reembolso Directo"}
-                    </p>
+                    {report.report_type === "fund_rendition" && report.cash_advances ? (
+                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                        <span>Fondo: <strong className="text-foreground">{report.cash_advances.purpose}</strong></span>
+                        <span>· Asignado: <strong>{formatClp(report.cash_advances.initial_amount)}</strong></span>
+                        <span>· Saldo remanente: <strong className="text-emerald-600 dark:text-emerald-400">{formatClp(Number(report.cash_advances.initial_amount || 0) - Number(report.total_amount || 0))}</strong></span>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Modalidad: Reembolso Directo
+                      </p>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-3">

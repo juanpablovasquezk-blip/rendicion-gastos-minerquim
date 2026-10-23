@@ -25,11 +25,39 @@ export default async function NuevoGastoPage({
       sb.from("receipt_types").select("id, name, code, requires_receipt").eq("is_active", true).order("name"),
       sb
         .from("cash_advances")
-        .select("id, purpose, current_balance, companies(name)")
+        .select(`
+          id, purpose, initial_amount, current_balance, companies(name),
+          expense_reports(
+            id, status,
+            expenses(id, total_amount, status)
+          )
+        `)
         .eq("user_id", profile.id)
         .eq("status", "active")
         .order("created_at", { ascending: false }),
     ]);
+
+  // Calcular saldo disponible real deduciendo los gastos ya registrados (incluso en borrador)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const computedActiveFunds = ((activeFunds || []) as any[]).map((f) => {
+    const initialAmount = Number(f.initial_amount || 0);
+    const reports = (f.expense_reports || []) as any[];
+    const spentAmount = reports
+      .flatMap((r) => r.expenses || [])
+      .filter((e) => e.status !== "rejected")
+      .reduce((sum: number, e: any) => sum + Number(e.total_amount || 0), 0);
+
+    const realBalance = initialAmount > 0 ? initialAmount - spentAmount : Number(f.current_balance || 0);
+
+    return {
+      id: f.id,
+      purpose: f.purpose,
+      current_balance: realBalance,
+      initial_amount: initialAmount,
+      spent_amount: spentAmount,
+      companies: f.companies,
+    };
+  });
 
   return (
     <section className="mx-auto max-w-3xl space-y-6">
@@ -61,7 +89,7 @@ export default async function NuevoGastoPage({
         departments={departments ?? []}
         categories={categories ?? []}
         receiptTypes={receiptTypes ?? []}
-        activeFunds={activeFunds ?? []}
+        activeFunds={computedActiveFunds}
         initialFundId={fund_id}
       />
     </section>
