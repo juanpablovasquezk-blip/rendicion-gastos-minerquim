@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { normalizeRut } from "@/lib/format";
 import { notifyRole } from "@/lib/notifications/service";
 import crypto from "crypto";
@@ -348,3 +349,148 @@ export async function deleteExpense(f: FormData) {
   revalidatePath("/fondos");
   redirect("/gastos?success=gasto_eliminado");
 }
+
+/** Modificar y actualizar los datos de un gasto existente */
+export async function updateExpenseAction(f: FormData): Promise<{ success: boolean; error?: string }> {
+  try {
+    const profile = await requireRole();
+    const expenseId = str(f, "expense_id");
+    if (!expenseId) return { success: false, error: "ID de gasto inválido." };
+
+    const companyId = str(f, "company_id");
+    const departmentId = str(f, "department_id");
+    const categoryId = str(f, "category_id");
+    const receiptTypeId = str(f, "receipt_type_id");
+    const expenseDate = str(f, "date");
+    const totalAmount = money(f, "total_amount");
+    const taxAmount = money(f, "tax_amount");
+    const supplierName = str(f, "supplier_name");
+    const supplierRutRaw = str(f, "supplier_rut");
+    const invoiceNumber = str(f, "invoice_number");
+    const description = str(f, "description");
+    const justification = str(f, "justification");
+
+    if (!companyId) return { success: false, error: "Debes seleccionar la empresa." };
+    if (!departmentId) return { success: false, error: "Debes seleccionar el Área / Centro de Costo." };
+    if (!categoryId) return { success: false, error: "Debes seleccionar la categoría." };
+    if (!receiptTypeId) return { success: false, error: "Debes seleccionar el tipo de comprobante." };
+    if (!expenseDate) return { success: false, error: "Debes indicar la fecha del gasto." };
+    if (!totalAmount || totalAmount <= 0) return { success: false, error: "Ingresa un monto total válido mayor a $0." };
+
+    const adminSb = createAdminClient();
+
+    // Obtener gasto actual
+    const { data: exp, error: expErr } = await adminSb
+      .from("expenses")
+      .select("*, expense_reports(id, status, user_id)")
+      .eq("id", expenseId)
+      .single();
+
+    if (expErr || !exp) return { success: false, error: "No se encontró el gasto." };
+
+    const isOwner = exp.user_id === profile.id;
+    const isManagement = ["admin", "general_manager", "manager"].includes(profile.role);
+    if (!isOwner && !isManagement) {
+      return { success: false, error: "No tienes permiso para editar este gasto." };
+    }
+
+    // Comprobar si requiere respaldo
+    const { data: receiptType } = await adminSb
+      .from("receipt_types")
+      .select("requires_receipt")
+      .eq("id", receiptTypeId)
+      .single();
+
+    const requiresReceipt = receiptType?.requires_receipt ?? true;
+    if (!requiresReceipt && (!justification || justification.length < 5)) {
+      return { success: false, error: "Para gastos sin comprobante, la justificación es obligatoria (mínimo 5 caracteres)." };
+    }
+
+    let supplierRut: string | null = null;
+    if (supplierRutRaw) {
+      supplierRut = normalizeRut(supplierRutRaw);
+    }
+
+    // Comprobar si se sube un nuevo archivo
+    let receiptPath = exp.receipt_path;
+    let receiptHash = exp.receipt_hash;
+    const rawFile = f.get("receipt_file");
+    const receiptFile = rawFile instanceof File && rawFile.size > 0 ? rawFile : null;
+
+    if (receiptFile) {
+      const bytes = await receiptFile.arrayBuffer();
+      const buffer = Buffer.from(bytes);
+      receiptHash = crypto.createHash("sha256").update(buffer).digest("hex");
+      const fileExt = receiptFile.name.split(".").pop() || "jpg";
+      const fileName = `${exp.user_id}/${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${fileExt}`;
+
+      const { error: uploadErr } = await adminSb.storage
+        .from("receipts")
+        .upload(fileName, buffer, {
+          contentType: receiptFile.type || "image/jpeg",
+          upsert: false,
+        });
+
+      if (!uploadErr) {
+        receiptPath = fileName;
+      }
+    }
+
+    const { error: updErr } = await adminSb
+      .from("expenses")
+      .update({
+        company_id: companyId,
+        department_id: departmentId,
+        category_id: categoryId,
+        receipt_type_id: receiptTypeId,
+        date: expenseDate,
+        total_amount: totalAmount,
+        tax_amount: taxAmount,
+        supplier_name: supplierName || null,
+        supplier_rut: supplierRut,
+        invoice_number: invoiceNumber || null,
+        description: description || null,
+        justification: justification || null,
+        has_receipt: requiresReceipt,
+        receipt_path: receiptPath,
+        receipt_hash: receiptHash,
+      })
+      .eq("id", expenseId);
+
+    if (updErr) {
+      return { success: false, error: `Error al actualizar gasto: ${updErr.message}` };
+    }
+
+    // Disparar recálculo de montos en expense_reports
+    const { data: allReportExpenses } = await adminSb
+      .from("expenses")
+      .select("total_amount, status")
+      .eq("report_id", exp.report_id);
+
+    const newTotal = (allReportExpenses || [])
+      .filter((e) => e.status !== "rejected")
+      .reduce((sum, e) => sum + Number(e.total_amount || 0), 0);
+    const newApproved = (allReportExpenses || [])
+      .filter((e) => e.status === "approved")
+      .reduce((sum, e) => sum + Number(e.total_amount || 0), 0);
+
+    await adminSb
+      .from("expense_reports")
+      .update({
+        total_amount: newTotal,
+        approved_amount: newApproved,
+      })
+      .eq("id", exp.report_id);
+
+    revalidatePath("/gastos");
+    revalidatePath("/aprobaciones");
+    revalidatePath("/fondos");
+    revalidatePath("/dashboard");
+
+    return { success: true };
+  } catch (err: any) {
+    console.error("Error en updateExpenseAction:", err);
+    return { success: false, error: err?.message || "Error inesperado al actualizar el gasto." };
+  }
+}
+

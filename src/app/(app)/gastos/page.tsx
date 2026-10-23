@@ -2,9 +2,11 @@ import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { formatClp, formatDate, REPORT_STATUS_CONFIG } from "@/lib/format";
 import { deleteExpense, submitReport } from "./actions";
+import { EditExpenseModal } from "./edit-expense-modal";
 import { Plus, Receipt, AlertCircle, CheckCircle2, FileText, Trash2, Send, Clock, Building2, User } from "lucide-react";
 import Link from "next/link";
 import { getSignedFileUrl } from "@/lib/supabase/storage";
+import { getUserAuthorizedCompanies } from "@/lib/companies";
 
 export default async function GastosPage({
   searchParams,
@@ -19,6 +21,15 @@ export default async function GastosPage({
 
   const sb = await createClient();
 
+  // Obtener catálogos para edición de gastos
+  const [companies, { data: departments }, { data: categories }, { data: receiptTypes }] =
+    await Promise.all([
+      getUserAuthorizedCompanies(sb, profile.id, profile.role),
+      sb.from("departments").select("id, name, code").eq("is_active", true).order("name"),
+      sb.from("categories").select("id, name").eq("is_active", true).order("name"),
+      sb.from("receipt_types").select("id, name, code, requires_receipt").eq("is_active", true).order("name"),
+    ]);
+
   // Obtener informes con sus gastos detallados
   let reportsQuery = sb
     .from("expense_reports")
@@ -30,6 +41,7 @@ export default async function GastosPage({
         id, date, supplier_name, supplier_rut, invoice_number,
         total_amount, tax_amount, has_receipt, receipt_path, is_duplicate_flag,
         description, justification, status, rejection_reason,
+        company_id, department_id, category_id, receipt_type_id,
         companies(name), departments(name, code), categories(name), receipt_types(name)
       )
     `)
@@ -260,6 +272,14 @@ export default async function GastosPage({
                             <FileText size={16} />
                           </a>
                         )}
+
+                        <EditExpenseModal
+                          expense={exp}
+                          companies={companies}
+                          departments={departments || []}
+                          categories={categories || []}
+                          receiptTypes={receiptTypes || []}
+                        />
 
                         <form action={deleteExpense}>
                           <input type="hidden" name="expense_id" value={exp.id} />
