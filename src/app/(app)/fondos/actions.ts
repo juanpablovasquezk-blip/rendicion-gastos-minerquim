@@ -181,6 +181,54 @@ export async function cancelFund(f: FormData) {
   redirect("/fondos?success=solicitud_cancelada");
 }
 
+/** Eliminar definitivamente una solicitud de fondo (si aún no ha sido activada con dinero real) */
+export async function deleteFundRequestAction(f: FormData) {
+  const profile = await requireRole();
+  const id = str(f, "id");
+  if (!id) fail("/fondos", "ID de fondo inválido.");
+
+  const sb = await createClient();
+  const isManagement = ["admin", "general_manager", "manager"].includes(profile.role);
+
+  // Obtener el fondo para validar permisos y estado
+  const { data: fund, error: fetchErr } = await sb
+    .from("cash_advances")
+    .select("id, user_id, status, purpose")
+    .eq("id", id)
+    .single();
+
+  if (fetchErr || !fund) {
+    fail("/fondos", "No se encontró la solicitud de fondo.");
+  }
+
+  if (fund.user_id !== profile.id && !isManagement) {
+    fail("/fondos", "No tienes permisos para eliminar esta solicitud de fondo.");
+  }
+
+  if (fund.status === "active" || fund.status === "closed") {
+    fail("/fondos", "No se puede eliminar un fondo activo o cerrado. Debe liquidarse formalmente.");
+  }
+
+  const adminSb = createAdminClient();
+
+  // Limpiar cualquier registro previo de historial para evitar bloqueos por FK
+  await adminSb.from("approval_history").delete().eq("fund_id", id);
+
+  const { error: delErr } = await adminSb
+    .from("cash_advances")
+    .delete()
+    .eq("id", id);
+
+  if (delErr) {
+    fail("/fondos", `Error al eliminar la solicitud: ${delErr.message}`);
+  }
+
+  revalidatePath("/fondos");
+  revalidatePath("/aprobaciones");
+  revalidatePath("/dashboard");
+  redirect("/fondos?success=solicitud_eliminada");
+}
+
 export type CloseFundResult = {
   success: boolean;
   error?: string;

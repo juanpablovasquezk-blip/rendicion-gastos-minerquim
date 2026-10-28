@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { formatClp, formatDate, FUND_STATUS_CONFIG, REPORT_STATUS_CONFIG } from "@/lib/format";
 import { NewFundModal } from "./new-fund-modal";
 import { CloseFundModal } from "./close-fund-modal";
+import { DeleteFundButton } from "./delete-fund-button";
 import { cancelFund } from "./actions";
 import { Wallet, AlertCircle, CheckCircle2, FileText, ArrowUpRight, Ban, HandCoins, Plus, Building2, User, Users, ClipboardCheck } from "lucide-react";
 import Link from "next/link";
@@ -250,6 +251,12 @@ export default async function FondosPage({
           <span>La solicitud fue cancelada.</span>
         </div>
       )}
+      {success === "solicitud_eliminada" && (
+        <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-300">
+          <CheckCircle2 size={20} className="shrink-0" />
+          <span>Solicitud de fondo eliminada exitosamente.</span>
+        </div>
+      )}
 
       {/* Resumen numérico: 3 tarjetas balanceadas */}
       <div className="grid gap-4 sm:grid-cols-3">
@@ -487,18 +494,13 @@ export default async function FondosPage({
                           </>
                         )}
 
-                        {fund.status === "requested" && fund.user_id === profile.id && (
-                          <form action={cancelFund}>
-                            <input type="hidden" name="id" value={fund.id} />
-                            <button
-                              type="submit"
-                              title="Cancelar solicitud"
-                              className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-rose-600 transition hover:bg-rose-50 dark:hover:bg-rose-950/30"
-                            >
-                              <Ban size={14} />
-                              Cancelar
-                            </button>
-                          </form>
+                        {(fund.status === "requested" || fund.status === "approved" || fund.status === "rejected" || fund.status === "cancelled") &&
+                          (fund.user_id === profile.id || isManagement) && (
+                            <DeleteFundButton
+                              fundId={fund.id}
+                              purpose={fund.purpose}
+                              amount={Number(fund.requested_amount || 0)}
+                            />
                         )}
                       </div>
                     </div>

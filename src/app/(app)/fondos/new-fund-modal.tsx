@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, X, Wallet, Coins } from "lucide-react";
+import { Plus, X, Wallet, Coins, Loader2 } from "lucide-react";
 import { requestFund } from "./actions";
 import { formatClp } from "@/lib/format";
 
@@ -14,6 +14,7 @@ export function NewFundModal({
 }) {
   const [open, setOpen] = useState(false);
   const [amountStr, setAmountStr] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const numAmount = Number(amountStr.replace(/\D/g, "")) || 0;
   const appliedCredit = Math.min(userCreditBalance, numAmount);
@@ -62,7 +63,18 @@ export function NewFundModal({
               </button>
             </div>
 
-            <form action={requestFund} className="mt-5 space-y-4">
+            <form
+              action={async (formData) => {
+                if (isSubmitting) return;
+                setIsSubmitting(true);
+                try {
+                  await requestFund(formData);
+                } finally {
+                  setIsSubmitting(false);
+                }
+              }}
+              className="mt-5 space-y-4"
+            >
               <label className="block">
                 <span className="mb-1.5 block text-xs font-semibold text-muted-foreground">
                   Monto solicitado (CLP)
@@ -138,9 +150,17 @@ export function NewFundModal({
                 </button>
                 <button
                   type="submit"
-                  className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white shadow transition hover:bg-brand-600 active:scale-95"
+                  disabled={isSubmitting}
+                  className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white shadow transition hover:bg-brand-600 active:scale-95 disabled:opacity-60"
                 >
-                  Enviar Solicitud
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      <span>Enviando...</span>
+                    </>
+                  ) : (
+                    "Enviar Solicitud"
+                  )}
                 </button>
               </div>
             </form>
