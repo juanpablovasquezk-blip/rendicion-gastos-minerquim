@@ -4,6 +4,7 @@ import { UserRole } from "./roles";
 export type CompanyOption = {
   id: string;
   name: string;
+  rut?: string | null;
   is_active: boolean;
 };
 
@@ -22,7 +23,7 @@ export async function getUserAuthorizedCompanies(
   if (role === "admin" || role === "general_manager") {
     const { data: allActive } = await supabase
       .from("companies")
-      .select("id, name, is_active")
+      .select("id, name, rut, is_active")
       .eq("is_active", true)
       .order("name");
     return allActive ?? [];
@@ -31,7 +32,7 @@ export async function getUserAuthorizedCompanies(
   // 2. Para otros roles, consultar empresas asignadas
   const { data: userCompanies } = await supabase
     .from("user_companies")
-    .select("company_id, companies(id, name, is_active)")
+    .select("company_id, companies(id, name, rut, is_active)")
     .eq("user_id", userId);
 
   const assigned = (userCompanies ?? [])
@@ -46,7 +47,7 @@ export async function getUserAuthorizedCompanies(
   // Si no tiene empresas restringidas de forma explícita, habilitar todas las activas
   const { data: fallbackActive } = await supabase
     .from("companies")
-    .select("id, name, is_active")
+    .select("id, name, rut, is_active")
     .eq("is_active", true)
     .order("name");
 

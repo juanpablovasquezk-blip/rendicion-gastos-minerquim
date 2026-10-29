@@ -9,7 +9,7 @@ import { compressImage } from "@/lib/image-compression";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 
-type Company = { id: string; name: string };
+type Company = { id: string; name: string; rut?: string | null };
 type Department = { id: string; name: string; code: string };
 type Category = { id: string; name: string };
 type ReceiptType = { id: string; name: string; code: string; requires_receipt: boolean };
@@ -64,6 +64,7 @@ export function ExpenseForm({
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>(
     initialCompanies[0]?.id || ""
   );
+  const [hasUserChangedCompany, setHasUserChangedCompany] = useState(false);
   const [selectedDepartmentId, setSelectedDepartmentId] = useState<string>(
     initialDepartments[0]?.id || ""
   );
@@ -245,17 +246,33 @@ export function ExpenseForm({
           if (matched) setSelectedReceiptTypeId(matched.id);
         }
 
-        // 2. Autodetectar Empresa Compradora si viene en la factura
-        if (d.buyer_name || d.buyer_rut) {
-          const buyerNameUpper = (d.buyer_name || "").toUpperCase();
+        // 2. Autodetectar Empresa Compradora si viene en la factura y el usuario no la ha cambiado manualmente
+        if (!hasUserChangedCompany && (d.buyer_name || d.buyer_rut)) {
+          const cleanBuyerRut = (d.buyer_rut || "").replace(/[^0-9kK]/g, "").toUpperCase();
+          const buyerUpper = (d.buyer_name || "").toUpperCase();
 
-          const matchedCompany = companies.find((c) => {
-            const compNameUpper = c.name.toUpperCase();
-            if (buyerNameUpper.includes("MINERQUIM") && compNameUpper.includes("MINERQUIM")) return true;
-            if (buyerNameUpper.includes("COMERCIALIZADORA") && compNameUpper.includes("COMERCIALIZADORA")) return true;
-            if (compNameUpper.split(" ").some((w) => w.length > 4 && buyerNameUpper.includes(w))) return true;
-            return false;
-          });
+          let matchedCompany: Company | undefined;
+
+          // Primero: Coincidencia exacta por RUT del comprador
+          if (cleanBuyerRut) {
+            matchedCompany = companies.find((c) => {
+              const compRut = (c.rut || "").replace(/[^0-9kK]/g, "").toUpperCase();
+              return compRut && compRut === cleanBuyerRut;
+            });
+          }
+
+          // Segundo: Coincidencia por palabras clave distintivas de cada razón social
+          if (!matchedCompany && buyerUpper) {
+            if (buyerUpper.includes("TRANSPORTES") || buyerUpper.includes("LOGISTICA") || buyerUpper.includes("LOGÍSTICA")) {
+              matchedCompany = companies.find((c) => c.name.toUpperCase().includes("TRANSPORTES"));
+            } else if (buyerUpper.includes("COMBUSTIBLE") || buyerUpper.includes("DISTRIBUIDORA")) {
+              matchedCompany = companies.find((c) => c.name.toUpperCase().includes("COMBUSTIBLE"));
+            } else if (buyerUpper.includes("CARRETERO") || buyerUpper.includes("TIERRA")) {
+              matchedCompany = companies.find((c) => c.name.toUpperCase().includes("CARRETERO") || c.name.toUpperCase().includes("TIERRA"));
+            } else if (buyerUpper.includes("COMERCIALIZADORA") || buyerUpper.includes("INGENIERIA") || buyerUpper.includes("INGENIERÍA")) {
+              matchedCompany = companies.find((c) => c.name.toUpperCase().includes("COMERCIALIZADORA"));
+            }
+          }
 
           if (matchedCompany) {
             setSelectedCompanyId(matchedCompany.id);
@@ -731,7 +748,10 @@ export function ExpenseForm({
             <select
               name="company_id"
               value={selectedCompanyId}
-              onChange={(e) => setSelectedCompanyId(e.target.value)}
+              onChange={(e) => {
+                setSelectedCompanyId(e.target.value);
+                setHasUserChangedCompany(true);
+              }}
               required
               className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm font-medium outline-none focus:border-primary focus:ring-2 focus:ring-brand-200"
             >
