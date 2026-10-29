@@ -53,8 +53,21 @@ export async function saveExpenseAction(f: FormData): Promise<SaveExpenseResult>
     if (!expenseDate) return { success: false, error: "Debes indicar la fecha del gasto." };
     if (!totalAmount || totalAmount <= 0) return { success: false, error: "Ingresa un monto total válido mayor a $0." };
 
-    if (reportType === "fund_rendition" && !fundId) {
-      return { success: false, error: "Debes seleccionar un fondo activo para asociar esta rendición." };
+    let targetFundId = fundId;
+    if (reportType === "fund_rendition") {
+      const { data: userActiveFunds } = await sb
+        .from("cash_advances")
+        .select("id")
+        .eq("user_id", profile.id)
+        .eq("status", "active")
+        .order("created_at", { ascending: true });
+
+      if (!userActiveFunds || userActiveFunds.length === 0) {
+        return { success: false, error: "No tienes ningún fondo activo disponible para rendir gastos de empresa." };
+      }
+      if (!targetFundId) {
+        targetFundId = userActiveFunds[0].id;
+      }
     }
 
     // Verificar tipo de comprobante (si requiere respaldo)
@@ -75,10 +88,10 @@ export async function saveExpenseAction(f: FormData): Promise<SaveExpenseResult>
       supplierRut = normalizeRut(supplierRutRaw);
     }
 
-    // 1. Obtener o crear un informe borrador ('draft') apropiado
+    // 1. Obtener o crear el informe borrador ('draft') consolidado apropiado
     let reportId = str(f, "report_id");
     if (!reportId) {
-      // Buscar si ya existe un informe borrador compatible
+      // Buscar si ya existe un informe borrador activo para esta modalidad (unifica todos los fondos en un solo informe)
       let query = sb
         .from("expense_reports")
         .select("id")
@@ -86,20 +99,18 @@ export async function saveExpenseAction(f: FormData): Promise<SaveExpenseResult>
         .eq("status", "draft")
         .eq("report_type", reportType);
 
-      if (fundId) {
-        query = query.eq("fund_id", fundId);
-      } else {
+      if (reportType === "reimbursement") {
         query = query.is("fund_id", null);
       }
 
-      const { data: existingDraft } = await query.limit(1).maybeSingle();
+      const { data: existingDraft } = await query.order("created_at", { ascending: false }).limit(1).maybeSingle();
 
       if (existingDraft) {
         reportId = existingDraft.id;
       } else {
-        // Crear un nuevo informe borrador
-        const title = fundId
-          ? `Rendición de Fondo - ${new Date().toLocaleDateString("es-CL")}`
+        // Crear un nuevo informe borrador consolidado
+        const title = reportType === "fund_rendition"
+          ? "Rendición de Fondos en Curso"
           : `Reembolso de Gastos - ${new Date().toLocaleDateString("es-CL")}`;
 
         const { data: newReport, error: reportErr } = await sb
@@ -108,7 +119,7 @@ export async function saveExpenseAction(f: FormData): Promise<SaveExpenseResult>
             user_id: profile.id,
             title,
             report_type: reportType,
-            fund_id: fundId,
+            fund_id: reportType === "fund_rendition" ? targetFundId : null,
             status: "draft",
           })
           .select("id")

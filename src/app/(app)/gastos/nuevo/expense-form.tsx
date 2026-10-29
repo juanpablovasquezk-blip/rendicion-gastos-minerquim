@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Camera, Upload, AlertTriangle, FileText, CheckCircle2, Sparkles, Loader2, WifiOff, Save, AlertCircle, Zap } from "lucide-react";
+import { Camera, Upload, AlertTriangle, FileText, CheckCircle2, Sparkles, Loader2, WifiOff, Save, AlertCircle, Zap, Wallet } from "lucide-react";
 import { saveExpenseAction } from "../actions";
 import { formatRut } from "@/lib/format";
 import { cacheCatalogs, getCachedCatalogs, saveOfflineExpense } from "@/lib/offline-expenses";
@@ -70,6 +70,10 @@ export function ExpenseForm({
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>(
     initialCategories[0]?.id || ""
   );
+
+  const totalPoolDelivered = activeFunds.reduce((sum, f) => sum + Number(f.initial_amount || 0), 0);
+  const totalPoolSpent = activeFunds.reduce((sum, f) => sum + Number(f.spent_amount || 0), 0);
+  const totalPoolAvailable = totalPoolDelivered - totalPoolSpent;
 
   // Inicializar y sincronizar catálogos locales para uso offline
   useEffect(() => {
@@ -552,40 +556,42 @@ export function ExpenseForm({
             <span className="block font-bold">2. Fondo por Rendir</span>
             <span className="text-xs font-normal opacity-80">
               {activeFunds.length > 0
-                ? `${activeFunds.length} fondo(s) disponible(s)`
+                ? `Bolsa: $${new Intl.NumberFormat("es-CL").format(totalPoolAvailable)} disp.`
                 : "No tienes fondos activos"}
             </span>
           </button>
         </div>
 
         {reportType === "fund_rendition" && activeFunds.length > 0 && (
-          <div className="mt-4 rounded-xl border border-border bg-background p-4">
-            <span className="mb-1.5 block text-xs font-semibold text-muted-foreground">
-              Selecciona el Fondo Asignado
-            </span>
-            <select
-              value={selectedFundId}
-              onChange={(e) => setSelectedFundId(e.target.value)}
-              className="w-full rounded-xl border border-border bg-surface px-3 py-2.5 text-sm font-medium outline-none focus:border-primary focus:ring-2 focus:ring-brand-200"
-            >
-              {activeFunds.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.purpose} — Saldo: ${new Intl.NumberFormat("es-CL").format(f.current_balance)}
-                </option>
-              ))}
-            </select>
-            {selectedFund && (
-              <div className="mt-2 space-y-0.5">
-                <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                  Saldo disponible actual en este fondo: ${new Intl.NumberFormat("es-CL").format(selectedFund.current_balance)}
-                </p>
-                {selectedFund.spent_amount !== undefined && selectedFund.spent_amount > 0 && (
-                  <p className="text-[11px] text-muted-foreground">
-                    (Monto entregado: ${new Intl.NumberFormat("es-CL").format(selectedFund.initial_amount || 0)} · Gastos ya registrados: ${new Intl.NumberFormat("es-CL").format(selectedFund.spent_amount)})
+          <div className="mt-4 rounded-2xl border border-primary/20 bg-gradient-to-r from-brand-500/10 via-brand-500/5 to-transparent p-4 shadow-sm">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary text-white shadow-sm">
+                  <Wallet size={20} />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-foreground">Bolsa Única de Fondos de Empresa</h4>
+                  <p className="text-xs text-muted-foreground">
+                    Tus gastos se descuentan automáticamente de tu saldo total consolidado ({activeFunds.length} {activeFunds.length === 1 ? "fondo" : "fondos activos"}).
                   </p>
-                )}
+                </div>
               </div>
-            )}
+              <div className="text-left sm:text-right">
+                <span className="block text-[11px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                  Saldo Disponible en Bolsa
+                </span>
+                <span className="text-xl font-black text-foreground">
+                  ${new Intl.NumberFormat("es-CL").format(totalPoolAvailable)}
+                </span>
+              </div>
+            </div>
+
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border/50 pt-2.5 text-xs text-muted-foreground">
+              <span>Total recibido en fondos: <strong className="text-foreground">${new Intl.NumberFormat("es-CL").format(totalPoolDelivered)}</strong></span>
+              <span>Gastos registrados en curso: <strong className="text-foreground">${new Intl.NumberFormat("es-CL").format(totalPoolSpent)}</strong></span>
+            </div>
+
+            <input type="hidden" name="fund_id" value={selectedFundId || activeFunds[0]?.id || ""} />
           </div>
         )}
       </div>

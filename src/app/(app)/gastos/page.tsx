@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { formatClp, formatDate, REPORT_STATUS_CONFIG } from "@/lib/format";
 import { deleteExpense, submitReport, reopenReportAction } from "./actions";
 import { EditExpenseModal } from "./edit-expense-modal";
-import { Plus, Receipt, AlertCircle, CheckCircle2, FileText, Trash2, Send, Clock, Building2, User, RotateCcw } from "lucide-react";
+import { Plus, Receipt, AlertCircle, CheckCircle2, FileText, Trash2, Send, Clock, Building2, User, RotateCcw, Wallet } from "lucide-react";
 import Link from "next/link";
 import { getSignedFileUrl } from "@/lib/supabase/storage";
 import { getUserAuthorizedCompanies } from "@/lib/companies";
@@ -21,14 +21,17 @@ export default async function GastosPage({
 
   const sb = await createClient();
 
-  // Obtener catálogos para edición de gastos
-  const [companies, { data: departments }, { data: categories }, { data: receiptTypes }] =
+  // Obtener catálogos y fondos activos para la Bolsa Única
+  const [companies, { data: departments }, { data: categories }, { data: receiptTypes }, { data: userActiveFunds }] =
     await Promise.all([
       getUserAuthorizedCompanies(sb, profile.id, profile.role),
       sb.from("departments").select("id, name, code").eq("is_active", true).order("name"),
       sb.from("categories").select("id, name").eq("is_active", true).order("name"),
       sb.from("receipt_types").select("id, name, code, requires_receipt").eq("is_active", true).order("name"),
+      sb.from("cash_advances").select("id, initial_amount, current_balance, purpose").eq("user_id", profile.id).eq("status", "active"),
     ]);
+
+  const totalFundPool = (userActiveFunds || []).reduce((sum, f) => sum + Number(f.initial_amount || 0), 0);
 
   // Obtener informes con sus gastos detallados
   let reportsQuery = sb
@@ -187,15 +190,24 @@ export default async function GastosPage({
                         {statusCfg.label}
                       </span>
                     </div>
-                    {report.report_type === "fund_rendition" && report.cash_advances ? (
-                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                        <span>Fondo: <strong className="text-foreground">{report.cash_advances.purpose}</strong></span>
-                        <span>· Asignado: <strong>{formatClp(report.cash_advances.initial_amount)}</strong></span>
-                        <span>· Saldo remanente: <strong className="text-emerald-600 dark:text-emerald-400">{formatClp(Number(report.cash_advances.initial_amount || 0) - Number(report.total_amount || 0))}</strong></span>
+                    {report.report_type === "fund_rendition" ? (
+                      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                        <span className="font-bold text-primary flex items-center gap-1">
+                          <Wallet size={14} /> Bolsa de Fondos Activos:
+                        </span>
+                        <span className="text-muted-foreground">
+                          Total asignado: <strong className="text-foreground">{formatClp(totalFundPool)}</strong> ({userActiveFunds?.length || 0} {userActiveFunds?.length === 1 ? "fondo" : "fondos"})
+                        </span>
+                        <span className="text-muted-foreground">
+                          · Rendido en este informe: <strong className="text-foreground">{formatClp(report.total_amount)}</strong>
+                        </span>
+                        <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                          · Saldo restante en bolsa: <strong>{formatClp(Math.max(0, totalFundPool - Number(report.total_amount || 0)))}</strong>
+                        </span>
                       </div>
                     ) : (
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        Modalidad: Reembolso Directo
+                        Modalidad: Reembolso Directo (Dinero Personal)
                       </p>
                     )}
                   </div>
