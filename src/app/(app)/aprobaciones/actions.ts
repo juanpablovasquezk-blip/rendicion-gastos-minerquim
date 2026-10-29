@@ -159,7 +159,9 @@ export async function depositFundByGM(f: FormData): Promise<ApprovalActionResult
       return { success: false, error: `No se encontró la solicitud de fondo: ${fundErr?.message || "Registro no existe"}` };
     }
 
-    const amountToActivate = fund.approved_amount || fund.requested_amount || 0;
+    const customDepositRaw = str(f, "deposit_amount");
+    const customDeposit = customDepositRaw ? Number(customDepositRaw.replace(/\D/g, "")) : 0;
+    const amountToActivate = customDeposit > 0 ? customDeposit : (fund.approved_amount || fund.requested_amount || 0);
     const bonusReimbursements = Number(fund.reimbursements_bonus || 0);
     const linkedReports = Array.isArray(fund.linked_reimbursement_ids) ? fund.linked_reimbursement_ids : [];
 
@@ -172,6 +174,7 @@ export async function depositFundByGM(f: FormData): Promise<ApprovalActionResult
         deposit_receipt_path: fileName,
         deposit_note: depositNote || (paymentMethod === "cash" ? "Entrega de dinero en efectivo" : null),
         initial_amount: amountToActivate,
+        approved_amount: amountToActivate,
         deposited_by: profile.id,
         deposited_at: new Date().toISOString(),
         date_assigned: new Date().toISOString().split("T")[0],
@@ -205,6 +208,10 @@ export async function depositFundByGM(f: FormData): Promise<ApprovalActionResult
 
     // Registrar en historial del fondo
     const methodLabel = paymentMethod === "cash" ? "Entrega en Efectivo" : "Transferencia Bancaria";
+    const amountAdjustmentNote =
+      amountToActivate !== Number(fund.requested_amount || 0)
+        ? ` Monto entregado: ${formatClp(amountToActivate)} (solicitado: ${formatClp(fund.requested_amount)}).`
+        : ` Monto: ${formatClp(amountToActivate)}.`;
     const bonusNote =
       bonusReimbursements > 0
         ? ` Incluye pago conjunto de ${formatClp(bonusReimbursements)} por reembolsos aprobados.`
@@ -215,17 +222,17 @@ export async function depositFundByGM(f: FormData): Promise<ApprovalActionResult
       subject_user_id: fund.user_id,
       approver_id: profile.id,
       action: "deposited",
-      comments: `Fondo entregado y activado (${methodLabel}).${bonusNote} ${depositNote ? `Nota: ${depositNote}` : ""}`,
+      comments: `Fondo entregado y activado (${methodLabel}).${amountAdjustmentNote}${bonusNote} ${depositNote ? `Nota: ${depositNote}` : ""}`,
     });
 
     // Notificar al colaborador que los fondos fueron transferidos/entregados y están activos
     try {
       const actionDesc = paymentMethod === "cash" ? "la entrega de dinero en efectivo" : "la transferencia bancaria";
-      const totalTransferred = Number(fund.net_deposit_amount || amountToActivate);
+      const totalTransferred = amountToActivate + bonusReimbursements;
       const extraMsg =
         bonusReimbursements > 0
           ? ` (${formatClp(amountToActivate)} para el fondo + ${formatClp(bonusReimbursements)} de tus reembolsos pendientes). Tus reembolsos quedaron saldados y tu nuevo fondo está activo.`
-          : ` para "${fund.purpose}". Ya puedes comenzar a rendir gastos.`;
+          : ` por ${formatClp(amountToActivate)} para "${fund.purpose}". Ya puedes comenzar a rendir gastos.`;
 
       await sendNotification({
         userId: fund.user_id,

@@ -207,6 +207,9 @@ export function DepositFundModal({
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [depositAmountStr, setDepositAmountStr] = useState(
+    amount ? new Intl.NumberFormat("es-CL").format(amount) : ""
+  );
   const [paymentMethod, setPaymentMethod] = useState<"transfer" | "cash">("transfer");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
@@ -257,8 +260,16 @@ export function DepositFundModal({
     if (file) handleSetFile(file);
   };
 
+  const numCustomAmount = Number(depositAmountStr.replace(/\D/g, "")) || 0;
+  const effectiveFundAmount = numCustomAmount > 0 ? numCustomAmount : amount;
+  const effectiveTotalTransfer = Math.max(0, effectiveFundAmount - appliedCredit + reimbursementsBonus);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (effectiveFundAmount <= 0) {
+      setErrorMessage("Ingresa un monto válido mayor a $0 para el fondo.");
+      return;
+    }
     if (paymentMethod === "transfer" && !selectedFile) {
       setErrorMessage("Debes adjuntar o pegar el comprobante de la transferencia bancaria.");
       return;
@@ -270,6 +281,7 @@ export function DepositFundModal({
     try {
       const fd = new FormData();
       fd.set("fund_id", fundId);
+      fd.set("deposit_amount", effectiveFundAmount.toString());
       fd.set("payment_method", paymentMethod);
       fd.set("deposit_note", depositNote);
       if (selectedFile) {
@@ -336,10 +348,40 @@ export function DepositFundModal({
               <p><strong className="text-foreground">Empresa:</strong> {companyName}</p>
               <p><strong className="text-foreground">Motivo:</strong> {purpose}</p>
 
+              {/* Monto editable a depositar */}
+              <div className="mt-2.5 pt-2 border-t border-border/60">
+                <label className="block mb-1 text-xs font-semibold text-foreground">
+                  Monto a Depositar / Entregar (CLP) *
+                </label>
+                <div className="relative">
+                  <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-sm font-bold text-muted-foreground">
+                    $
+                  </span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    required
+                    disabled={isPending}
+                    value={depositAmountStr}
+                    onChange={(e) => {
+                      const raw = e.target.value.replace(/\D/g, "");
+                      setDepositAmountStr(raw ? new Intl.NumberFormat("es-CL").format(Number(raw)) : "");
+                    }}
+                    placeholder="Ej: 401.000"
+                    className="w-full rounded-xl border border-border bg-surface py-2 pl-7 pr-3 text-base font-bold text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-brand-200 disabled:opacity-50"
+                  />
+                </div>
+                {numCustomAmount > 0 && numCustomAmount !== amount && (
+                  <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400 font-medium">
+                    * Monto modificado para este depósito. Solicitado original: {formatClp(amount)}
+                  </p>
+                )}
+              </div>
+
               <div className="rounded-xl border border-border bg-surface p-3 space-y-1.5 mt-2">
                 <div className="flex justify-between items-center text-xs">
                   <span>Monto del Nuevo Fondo:</span>
-                  <span className="font-bold text-foreground">{formatClp(amount)}</span>
+                  <span className="font-bold text-foreground">{formatClp(effectiveFundAmount)}</span>
                 </div>
 
                 {reimbursementsBonus > 0 && (
@@ -359,7 +401,7 @@ export function DepositFundModal({
                 <div className="flex justify-between items-center border-t border-border pt-2 text-sm font-extrabold text-foreground">
                   <span>Monto Total a Transferir Hoy:</span>
                   <span className="text-primary text-base">
-                    {formatClp(netDepositAmount != null ? netDepositAmount : amount - appliedCredit + reimbursementsBonus)}
+                    {formatClp(effectiveTotalTransfer)}
                   </span>
                 </div>
 
