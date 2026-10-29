@@ -328,6 +328,68 @@ export async function submitReport(f: FormData) {
   }
 }
 
+/** Reabrir un informe aprobado o enviado para devolverlo a borrador */
+export async function reopenReportAction(f: FormData) {
+  const profile = await requireRole();
+  const reportId = str(f, "report_id");
+  if (!reportId) fail("/gastos", "ID de informe no válido.");
+
+  const sb = await createClient();
+  const isManagement = ["admin", "general_manager", "manager"].includes(profile.role);
+
+  const { data: report, error: repErr } = await sb
+    .from("expense_reports")
+    .select("id, user_id, status, fund_id")
+    .eq("id", reportId)
+    .single();
+
+  if (repErr || !report) {
+    fail("/gastos", "No se encontró el informe a reabrir.");
+  }
+
+  if (report.user_id !== profile.id && !isManagement) {
+    fail("/gastos", "No tienes permisos para reabrir este informe.");
+  }
+
+  if (report.status === "settled") {
+    fail("/gastos", "No se puede reabrir un informe que ya fue liquidado/pagado mediante transferencia.");
+  }
+
+  const adminSb = createAdminClient();
+
+  // Devolver los gastos a estado pendiente (excepto rechazados)
+  await adminSb
+    .from("expenses")
+    .update({ status: "pending" })
+    .eq("report_id", reportId)
+    .neq("status", "rejected");
+
+  // Devolver el informe a borrador
+  await adminSb
+    .from("expense_reports")
+    .update({
+      status: "draft",
+      approval_stage: "admin",
+      approved_amount: 0,
+    })
+    .eq("id", reportId);
+
+  // Registrar auditoría de reapertura
+  await adminSb.from("approval_history").insert({
+    report_id: reportId,
+    subject_user_id: report.user_id,
+    approver_id: profile.id,
+    action: "submitted",
+    comments: "Informe reabierto y devuelto a borrador.",
+  });
+
+  revalidatePath("/gastos");
+  revalidatePath("/aprobaciones");
+  revalidatePath("/fondos");
+  revalidatePath("/dashboard");
+  redirect("/gastos?success=informe_reabierto");
+}
+
 /** Eliminar un gasto de un informe borrador */
 export async function deleteExpense(f: FormData) {
   const profile = await requireRole();

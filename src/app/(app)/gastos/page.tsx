@@ -1,9 +1,9 @@
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { formatClp, formatDate, REPORT_STATUS_CONFIG } from "@/lib/format";
-import { deleteExpense, submitReport } from "./actions";
+import { deleteExpense, submitReport, reopenReportAction } from "./actions";
 import { EditExpenseModal } from "./edit-expense-modal";
-import { Plus, Receipt, AlertCircle, CheckCircle2, FileText, Trash2, Send, Clock, Building2, User } from "lucide-react";
+import { Plus, Receipt, AlertCircle, CheckCircle2, FileText, Trash2, Send, Clock, Building2, User, RotateCcw } from "lucide-react";
 import Link from "next/link";
 import { getSignedFileUrl } from "@/lib/supabase/storage";
 import { getUserAuthorizedCompanies } from "@/lib/companies";
@@ -151,6 +151,12 @@ export default async function GastosPage({
         <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-300">
           <CheckCircle2 size={20} className="shrink-0" />
           <span>Gasto eliminado.</span>
+        </div>
+      )}
+      {success === "informe_reabierto" && (
+        <div className="flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-300">
+          <CheckCircle2 size={20} className="shrink-0" />
+          <span>Informe devuelto a borrador con éxito. Ya puedes seguir agregando o editando gastos.</span>
         </div>
       )}
 
@@ -342,9 +348,24 @@ export default async function GastosPage({
                       Enviado el {formatDate(report.submitted_at)} · {report.expenses?.length || 0} gastos incluidos
                     </p>
                   </div>
-                  <div className="text-left sm:text-right">
-                    <span className="block text-xs uppercase text-muted-foreground">Total</span>
-                    <span className="text-lg font-bold text-foreground">{formatClp(report.total_amount)}</span>
+                  <div className="flex items-center gap-3">
+                    <div className="text-left sm:text-right">
+                      <span className="block text-xs uppercase text-muted-foreground">Total</span>
+                      <span className="text-lg font-bold text-foreground">{formatClp(report.total_amount)}</span>
+                    </div>
+                    {(report.user_id === profile.id || isManagement) && (
+                      <form action={reopenReportAction}>
+                        <input type="hidden" name="report_id" value={report.id} />
+                        <button
+                          type="submit"
+                          title="Reabrir a borrador para seguir editando o agregando gastos"
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-semibold text-muted-foreground transition hover:border-primary hover:text-primary active:scale-95"
+                        >
+                          <RotateCcw size={13} />
+                          <span>Reabrir a Borrador</span>
+                        </button>
+                      </form>
+                    )}
                   </div>
                 </div>
               </div>
@@ -386,8 +407,21 @@ export default async function GastosPage({
                       {report.report_type === "fund_rendition" ? `Fondo: ${report.cash_advances?.purpose || "Fondo Operativo"}` : "Reembolso Directo"} · Creado el {formatDate(report.created_at)}
                     </p>
                   </div>
-                  <div className="text-left sm:text-right">
+                  <div className="flex items-center gap-3">
                     <span className="text-base font-bold text-foreground">{formatClp(report.total_amount)}</span>
+                    {report.status !== "settled" && (report.user_id === profile.id || isManagement) && (
+                      <form action={reopenReportAction}>
+                        <input type="hidden" name="report_id" value={report.id} />
+                        <button
+                          type="submit"
+                          title="Reabrir informe a borrador para seguir agregando o editando gastos"
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-xs font-semibold text-muted-foreground transition hover:border-primary hover:text-primary active:scale-95"
+                        >
+                          <RotateCcw size={13} />
+                          <span>Reabrir a Borrador</span>
+                        </button>
+                      </form>
+                    )}
                   </div>
                 </div>
               );
