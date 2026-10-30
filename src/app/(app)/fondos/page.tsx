@@ -82,25 +82,53 @@ export default async function FondosPage({
 
   const { data: fundsRaw } = await fundsQuery;
 
-  // Calcular saldo real disponible deduciendo todos los gastos registrados (incluyendo en borrador)
+  // 1. Calcular totales consolidados por usuario para la Bolsa Única de Fondos Activos
+  const userActiveFundsDelivered: Record<string, number> = {};
+  const userFundExpensesSpent: Record<string, number> = {};
+  const userActiveFundsCount: Record<string, number> = {};
+
+  for (const fund of (fundsRaw || [])) {
+    const uId = fund.user_id;
+    if (fund.status === "active") {
+      userActiveFundsDelivered[uId] = (userActiveFundsDelivered[uId] || 0) + Number(fund.initial_amount || 0);
+      userActiveFundsCount[uId] = (userActiveFundsCount[uId] || 0) + 1;
+    }
+    const reports = (fund.expense_reports || []) as any[];
+    const spent = reports
+      .flatMap((r) => r.expenses || [])
+      .filter((e) => e.status !== "rejected")
+      .reduce((sum, e) => sum + Number(e.total_amount || 0), 0);
+    userFundExpensesSpent[uId] = (userFundExpensesSpent[uId] || 0) + spent;
+  }
+
+  // 2. Calcular saldo real disponible deduciendo todos los gastos registrados (incluyendo en borrador)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const computedFunds = ((fundsRaw || []) as any[]).map((fund) => {
+    const uId = fund.user_id;
+    const isMultiActivePool = (userActiveFundsCount[uId] || 0) > 1;
+    const poolDelivered = userActiveFundsDelivered[uId] || Number(fund.initial_amount || 0);
+    const poolSpent = userFundExpensesSpent[uId] || 0;
+    const poolBalance = poolDelivered - poolSpent;
+
     const initialAmount = Number(fund.initial_amount || 0);
     const reports = (fund.expense_reports || []) as any[];
-    const spentAmount = reports
+    const individualSpent = reports
       .flatMap((r) => r.expenses || [])
       .filter((e) => e.status !== "rejected")
       .reduce((sum, e) => sum + Number(e.total_amount || 0), 0);
 
     const realBalance =
-      fund.status === "active" && initialAmount > 0
-        ? initialAmount - spentAmount
+      fund.status === "active"
+        ? (isMultiActivePool ? poolBalance : (initialAmount > 0 ? initialAmount - individualSpent : Number(fund.current_balance || 0)))
         : Number(fund.current_balance || 0);
 
     return {
       ...fund,
       current_balance: realBalance,
-      spent_amount: spentAmount,
+      spent_amount: isMultiActivePool ? poolSpent : individualSpent,
+      is_pool: isMultiActivePool,
+      pool_total_delivered: poolDelivered,
+      pool_total_spent: poolSpent,
     };
   });
 
@@ -129,7 +157,10 @@ export default async function FondosPage({
   const activeFunds = computedFunds.filter((f) => f.status === "active");
   const requestedFunds = computedFunds.filter((f) => f.status === "requested" || f.status === "approved");
 
-  const totalAvailableBalance = activeFunds.reduce((acc, f) => acc + Number(f.current_balance || 0), 0);
+  const totalAvailableBalance = Object.entries(userActiveFundsDelivered).reduce(
+    (acc, [uId, delivered]) => acc + Math.max(0, delivered - (userFundExpensesSpent[uId] || 0)),
+    0
+  );
   const totalPendingAmount = requestedFunds.reduce((acc, f) => acc + Number(f.requested_amount || 0), 0);
 
   // Helper para obtener monto real de un informe (incluso si total_amount del informe no fue recalculado aún)
@@ -427,7 +458,7 @@ export default async function FondosPage({
                         )}
                         {fund.status === "active" && spentAmount > 0 && (
                           <span className="text-amber-700 dark:text-amber-400 font-medium">
-                            Rendido / Registrado hasta hoy: {formatClp(spentAmount)}
+                            {fund.is_pool ? "Rendido en Bolsa hasta hoy:" : "Rendido / Registrado hasta hoy:"} {formatClp(spentAmount)}
                           </span>
                         )}
                       </div>
@@ -444,13 +475,15 @@ export default async function FondosPage({
                         {fund.status === "active" ? (
                           <>
                             <span className="block text-xs font-semibold uppercase text-emerald-600 dark:text-emerald-400">
-                              Saldo Restante por Rendir
+                              {fund.is_pool ? "Saldo Restante en Bolsa" : "Saldo Restante por Rendir"}
                             </span>
                             <span className="text-lg font-bold text-foreground">
-                              {formatClp(fund.current_balance)}
+                              {formatClp(Math.max(0, fund.current_balance))}
                             </span>
                             <span className="block text-[11px] text-muted-foreground">
-                              de {formatClp(fund.initial_amount)} entregados
+                              {fund.is_pool
+                                ? `de ${formatClp(fund.pool_total_delivered)} entregados en bolsa`
+                                : `de ${formatClp(fund.initial_amount)} entregados`}
                             </span>
                           </>
                         ) : (

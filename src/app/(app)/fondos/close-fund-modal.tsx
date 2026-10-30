@@ -13,6 +13,9 @@ interface CloseFundModalProps {
     initial_amount: number | null;
     current_balance: number;
     user_id: string;
+    pool_total_delivered?: number;
+    pool_total_spent?: number;
+    is_pool?: boolean;
   };
   userPendingReimbursementsTotal?: number;
 }
@@ -24,9 +27,10 @@ export function CloseFundModal({ fund, userPendingReimbursementsTotal = 0 }: Clo
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const router = useRouter();
 
-  const balance = Number(fund.current_balance || 0);
-  const initial = Number(fund.initial_amount || 0);
-  const rendered = initial - balance;
+  const isPool = Boolean(fund.is_pool);
+  const initial = isPool && fund.pool_total_delivered !== undefined ? fund.pool_total_delivered : Number(fund.initial_amount || 0);
+  const rendered = isPool && fund.pool_total_spent !== undefined ? fund.pool_total_spent : (initial - Number(fund.current_balance || 0));
+  const balance = initial - rendered;
 
   const hasNegativeBalance = balance < 0;
   const hasPositiveBalance = balance > 0;
@@ -62,7 +66,7 @@ export function CloseFundModal({ fund, userPendingReimbursementsTotal = 0 }: Clo
         className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-surface px-3 py-1.5 text-xs font-semibold text-muted-foreground transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700 active:scale-95 dark:hover:border-rose-800 dark:hover:bg-rose-950/40 dark:hover:text-rose-300"
       >
         <ShieldCheck size={14} />
-        Cerrar Fondo
+        {isPool ? "Cerrar Bolsa de Fondos" : "Cerrar Fondo"}
       </button>
 
       {isOpen && (
@@ -75,8 +79,12 @@ export function CloseFundModal({ fund, userPendingReimbursementsTotal = 0 }: Clo
                   <Wallet size={18} />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold">Cierre y Liquidación de Fondo</h3>
-                  <p className="text-xs text-muted-foreground truncate max-w-xs">{fund.purpose}</p>
+                  <h3 className="text-base font-bold">
+                    {isPool ? "Cierre y Liquidación de Bolsa de Fondos" : "Cierre y Liquidación de Fondo"}
+                  </h3>
+                  <p className="text-xs text-muted-foreground truncate max-w-xs">
+                    {isPool ? "Liquidación consolidada de todos tus fondos activos en bolsa" : fund.purpose}
+                  </p>
                 </div>
               </div>
               <button

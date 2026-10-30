@@ -250,16 +250,12 @@ export async function closeFundAction(f: FormData): Promise<CloseFundResult> {
 
     const sb = await createClient();
 
-    // 1. Obtener fondo activo con sus informes y gastos
+    // 1. Obtener fondo activo solicitado
     const { data: fund, error: fundErr } = await sb
       .from("cash_advances")
       .select(`
         *,
-        user_profile:user_id(id, full_name, email),
-        expense_reports(
-          id, status,
-          expenses(id, total_amount, status)
-        )
+        user_profile:user_id(id, full_name, email)
       `)
       .eq("id", fundId)
       .single();
@@ -281,19 +277,38 @@ export async function closeFundAction(f: FormData): Promise<CloseFundResult> {
 
     const adminSb = createAdminClient();
 
-    // Calcular el saldo real considerando todos los gastos registrados no rechazados
-    const initialAmount = Number(fund.initial_amount || 0);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const reports = (fund.expense_reports || []) as any[];
-    const totalSpent = reports
+    // 2. Obtener todos los fondos activos del colaborador (Bolsa Consolidada)
+    const { data: userActiveFunds } = await adminSb
+      .from("cash_advances")
+      .select("id, initial_amount, current_balance, purpose")
+      .eq("user_id", fund.user_id)
+      .eq("status", "active");
+
+    const fundsToClose = userActiveFunds && userActiveFunds.length > 0 ? userActiveFunds : [fund];
+    const isPool = fundsToClose.length > 1;
+
+    // Calcular total entregado en la bolsa
+    const totalDelivered = fundsToClose.reduce((sum, f) => sum + Number(f.initial_amount || 0), 0);
+
+    // 3. Obtener todos los gastos rendidos en informes de rendición de fondos del usuario
+    const { data: fundReports } = await adminSb
+      .from("expense_reports")
+      .select(`
+        id, status,
+        expenses(id, total_amount, status)
+      `)
+      .eq("user_id", fund.user_id)
+      .eq("report_type", "fund_rendition");
+
+    const totalSpent = (fundReports || [])
       .flatMap((r) => r.expenses || [])
       .filter((e) => e.status !== "rejected")
       .reduce((sum, e) => sum + Number(e.total_amount || 0), 0);
 
-    const balance = initialAmount > 0 ? initialAmount - totalSpent : Number(fund.current_balance || 0);
+    const balance = totalDelivered - totalSpent;
 
-    // Auto-aprobar cualquier informe borrador asociado a este fondo al momento del cierre
-    const draftReportIds = reports.filter((r) => r.status === "draft").map((r) => r.id);
+    // Auto-aprobar cualquier informe borrador asociado a fondos al momento del cierre
+    const draftReportIds = (fundReports || []).filter((r) => r.status === "draft").map((r) => r.id);
     if (draftReportIds.length > 0) {
       await adminSb
         .from("expenses")
@@ -312,13 +327,16 @@ export async function closeFundAction(f: FormData): Promise<CloseFundResult> {
     // =========================================================================
     if (balance < 0) {
       const deficit = Math.abs(balance);
+      const reportTitle = isPool
+        ? "Reembolso por Excedente de Fondos en Bolsa"
+        : `Reembolso por Excedente de Fondo (${fund.purpose})`;
 
       // 1. Crear informe de reembolso a favor del colaborador listo para pago por GM
       const { data: reimbursementReport, error: repErr } = await adminSb
         .from("expense_reports")
         .insert({
           user_id: fund.user_id,
-          title: `Reembolso por Excedente de Fondo (${fund.purpose})`,
+          title: reportTitle,
           report_type: "reimbursement",
           status: "approved",
           approval_stage: "done",
@@ -348,6 +366,10 @@ export async function closeFundAction(f: FormData): Promise<CloseFundResult> {
       const { data: defaultReceiptType } = await adminSb.from("receipt_types").select("id").limit(1).single();
 
       // 2. Insertar gasto aprobado asociado
+      const expDesc = isPool
+        ? `Excedente de gastos rendidos sobre total entregado en bolsa (${formatClp(totalSpent)} rendidos vs ${formatClp(totalDelivered)} recibidos)`
+        : `Excedente de gastos rendidos sobre fondo entregado (${fund.purpose})`;
+
       await adminSb.from("expenses").insert({
         report_id: reimbursementReport.id,
         user_id: fund.user_id,
@@ -357,7 +379,7 @@ export async function closeFundAction(f: FormData): Promise<CloseFundResult> {
         receipt_type_id: sampleExp?.receipt_type_id || defaultReceiptType?.id,
         date: new Date().toISOString().split("T")[0],
         supplier_name: "Liquidación por Cierre de Fondo",
-        description: `Excedente de gastos rendidos sobre fondo entregado (${fund.purpose})`,
+        description: expDesc,
         total_amount: deficit,
         tax_amount: 0,
         has_receipt: true,
@@ -375,30 +397,35 @@ export async function closeFundAction(f: FormData): Promise<CloseFundResult> {
         })
         .eq("id", reimbursementReport.id);
 
-      // 4. Cerrar el fondo
+      // 4. Cerrar todos los fondos activos involucrados
+      const targetFundIds = fundsToClose.map((f) => f.id);
       const { error: closeErr } = await adminSb
         .from("cash_advances")
-        .update({ status: "closed" })
-        .eq("id", fundId);
+        .update({ status: "closed", current_balance: 0 })
+        .in("id", targetFundIds);
 
       if (closeErr) {
-        return { success: false, error: `Error cerrando fondo: ${closeErr.message}` };
+        return { success: false, error: `Error cerrando fondos: ${closeErr.message}` };
       }
 
-      // Registrar historial de auditoría
-      await adminSb.from("approval_history").insert({
-        fund_id: fundId,
-        subject_user_id: fund.user_id,
-        approver_id: profile.id,
-        action: "settled",
-        comments: `Fondo cerrado con saldo negativo de ${formatClp(deficit)}. Se generó automáticamente un reembolso aprobado por ${formatClp(deficit)} directo a Gerencia General para su pago.`,
-      });
+      // Registrar historial de auditoría para cada fondo cerrado
+      for (const fItem of fundsToClose) {
+        await adminSb.from("approval_history").insert({
+          fund_id: fItem.id,
+          subject_user_id: fund.user_id,
+          approver_id: profile.id,
+          action: "settled",
+          comments: isPool
+            ? `Fondo cerrado como parte de la bolsa consolidada (${formatClp(totalDelivered)} entregados vs ${formatClp(totalSpent)} rendidos). Se generó automáticamente un reembolso aprobado por ${formatClp(deficit)} directo a Gerencia General para su pago.`
+            : `Fondo cerrado con saldo negativo de ${formatClp(deficit)}. Se generó automáticamente un reembolso aprobado por ${formatClp(deficit)} directo a Gerencia General para su pago.`,
+        });
+      }
 
       // Notificar a Gerencia General para que proceda con el pago del reembolso
       try {
         await notifyRole("general_manager", {
           title: "Reembolso por Cierre de Fondo",
-          message: `${fund.user_profile?.full_name || profile.full_name} cerró el fondo "${fund.purpose}" con un saldo a su favor de ${formatClp(deficit)}. Reembolso disponible para pago.`,
+          message: `${fund.user_profile?.full_name || profile.full_name} cerró sus fondos con un saldo a su favor de ${formatClp(deficit)}. Reembolso disponible para pago en Aprobaciones.`,
           type: "expense_approved",
           link: "/aprobaciones?tab=rendiciones",
         });
@@ -436,7 +463,7 @@ export async function closeFundAction(f: FormData): Promise<CloseFundResult> {
             subject_user_id: fund.user_id,
             approver_id: profile.id,
             action: "settled",
-            comments: `Reembolso liquidado y saldado automáticamente mediante neteo con saldo remanente (${formatClp(rAmount)}) del fondo "${fund.purpose}".`,
+            comments: `Reembolso liquidado y saldado automáticamente mediante neteo con saldo remanente (${formatClp(rAmount)}) de la bolsa de fondos.`,
           });
 
           remaining -= rAmount;
@@ -444,70 +471,60 @@ export async function closeFundAction(f: FormData): Promise<CloseFundResult> {
         }
       }
 
-      // 2. Si todavía queda remanente a favor de la empresa tras netear
-      if (remaining > 0) {
-        if (resolutionMode === "net_and_credit") {
-          // Guardar como crédito remanente para la próxima solicitud de fondo
-          const { data: p } = await adminSb
-            .from("profiles")
-            .select("credit_balance")
-            .eq("id", fund.user_id)
-            .single();
-
-          const currentCredit = Number(p?.credit_balance || 0);
-          await adminSb
-            .from("profiles")
-            .update({ credit_balance: currentCredit + remaining })
-            .eq("id", fund.user_id);
-        }
-      }
-
-      // 3. Cerrar el fondo
+      // 2. Cerrar todos los fondos activos involucrados
+      const targetFundIds = fundsToClose.map((f) => f.id);
       const { error: closeErr } = await adminSb
         .from("cash_advances")
-        .update({ status: "closed" })
-        .eq("id", fundId);
+        .update({ status: "closed", current_balance: 0 })
+        .in("id", targetFundIds);
 
       if (closeErr) {
-        return { success: false, error: `Error cerrando fondo: ${closeErr.message}` };
+        return { success: false, error: `Error cerrando fondos: ${closeErr.message}` };
       }
 
       // Registrar auditoría
       const modeText =
         remaining > 0
-          ? resolutionMode === "net_and_credit"
-            ? `Remanente final (${formatClp(remaining)}) abonado como crédito para su próximo fondo.`
-            : `Remanente final (${formatClp(remaining)}) devuelto a la empresa.`
+          ? `Remanente final (${formatClp(remaining)}) devuelto o archivado.`
           : "";
 
-      await sb.from("approval_history").insert({
-        fund_id: fundId,
-        subject_user_id: fund.user_id,
-        approver_id: profile.id,
-        action: "settled",
-        comments: `Fondo cerrado con saldo a favor de ${formatClp(balance)}. Neteado con reembolsos pendientes: ${formatClp(nettedAmount)}. ${modeText}`,
-      });
+      for (const fItem of fundsToClose) {
+        await adminSb.from("approval_history").insert({
+          fund_id: fItem.id,
+          subject_user_id: fund.user_id,
+          approver_id: profile.id,
+          action: "settled",
+          comments: isPool
+            ? `Fondo cerrado como parte de la bolsa consolidada con saldo total a favor de la empresa de ${formatClp(balance)}. Neteado con reembolsos pendientes: ${formatClp(nettedAmount)}. ${modeText}`
+            : `Fondo cerrado con saldo a favor de ${formatClp(balance)}. Neteado con reembolsos pendientes: ${formatClp(nettedAmount)}. ${modeText}`,
+        });
+      }
     }
     // =========================================================================
     // CASO 3: SALDO EXACTO $0
     // =========================================================================
     else {
-      const { error: closeErr } = await sb
+      const targetFundIds = fundsToClose.map((f) => f.id);
+      const { error: closeErr } = await adminSb
         .from("cash_advances")
-        .update({ status: "closed" })
-        .eq("id", fundId);
+        .update({ status: "closed", current_balance: 0 })
+        .in("id", targetFundIds);
 
       if (closeErr) {
-        return { success: false, error: `Error cerrando fondo: ${closeErr.message}` };
+        return { success: false, error: `Error cerrando fondos: ${closeErr.message}` };
       }
 
-      await sb.from("approval_history").insert({
-        fund_id: fundId,
-        subject_user_id: fund.user_id,
-        approver_id: profile.id,
-        action: "settled",
-        comments: `Fondo cerrado y liquidado con saldo exacto $0.`,
-      });
+      for (const fItem of fundsToClose) {
+        await adminSb.from("approval_history").insert({
+          fund_id: fItem.id,
+          subject_user_id: fund.user_id,
+          approver_id: profile.id,
+          action: "settled",
+          comments: isPool
+            ? `Fondo cerrado y liquidado como parte de la bolsa consolidada con saldo exacto $0.`
+            : `Fondo cerrado y liquidado con saldo exacto $0.`,
+        });
+      }
     }
 
     revalidatePath("/fondos");
