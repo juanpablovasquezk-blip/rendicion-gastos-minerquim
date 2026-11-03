@@ -5,6 +5,7 @@ import { formatClp, formatDate, FUND_STATUS_CONFIG, REPORT_STATUS_CONFIG } from 
 import { NewFundModal } from "./new-fund-modal";
 import { CloseFundModal } from "./close-fund-modal";
 import { DeleteFundButton } from "./delete-fund-button";
+import { ReverseDepositButton } from "./reverse-deposit-button";
 import { cancelFund } from "./actions";
 import { Wallet, AlertCircle, CheckCircle2, FileText, ArrowUpRight, Ban, HandCoins, Plus, Building2, User, Users, ClipboardCheck } from "lucide-react";
 import Link from "next/link";
@@ -288,6 +289,12 @@ export default async function FondosPage({
           <span>Solicitud de fondo eliminada exitosamente.</span>
         </div>
       )}
+      {success === "deposito_reversado" && (
+        <div className="flex items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-300">
+          <CheckCircle2 size={20} className="shrink-0" />
+          <span>El depósito fue reversado exitosamente. El fondo volvió a estar pendiente de transferencia en Gerencia General.</span>
+        </div>
+      )}
 
       {/* Resumen numérico: 3 tarjetas balanceadas */}
       <div className="grid gap-4 sm:grid-cols-3">
@@ -518,6 +525,13 @@ export default async function FondosPage({
                               fund={fund}
                               userPendingReimbursementsTotal={totalReimbursementOwed}
                             />
+                            {isManagement && spentAmount === 0 && (
+                              <ReverseDepositButton
+                                fundId={fund.id}
+                                purpose={fund.purpose}
+                                amount={Number(fund.initial_amount || fund.approved_amount || 0)}
+                              />
+                            )}
                             <Link
                               href={`/gastos/nuevo?fund_id=${fund.id}`}
                               className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-brand-600 active:scale-95"

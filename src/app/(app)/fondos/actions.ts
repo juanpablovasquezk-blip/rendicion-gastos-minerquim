@@ -229,6 +229,92 @@ export async function deleteFundRequestAction(f: FormData) {
   redirect("/fondos?success=solicitud_eliminada");
 }
 
+/** Reversar un depósito efectuado por error y devolver el fondo a estado aprobado pendiente de transferencia en Gerencia General */
+export async function reverseDepositAction(f: FormData) {
+  const profile = await requireRole();
+  const id = str(f, "id");
+  if (!id) fail("/fondos", "ID de fondo inválido.");
+
+  const isManagement = ["admin", "general_manager", "manager"].includes(profile.role);
+  if (!isManagement) {
+    fail("/fondos", "No tienes permisos para reversar depósitos.");
+  }
+
+  const adminSb = createAdminClient();
+
+  const { data: fund, error: fetchErr } = await adminSb
+    .from("cash_advances")
+    .select("*, expense_reports(id, expenses(id, total_amount, status))")
+    .eq("id", id)
+    .single();
+
+  if (fetchErr || !fund) {
+    fail("/fondos", "No se encontró el fondo.");
+  }
+
+  if (fund.status !== "active") {
+    fail("/fondos", "Solo se pueden reversar depósitos de fondos que estén actualmente activos.");
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const reports = (fund.expense_reports || []) as any[];
+  const spentAmount = reports
+    .flatMap((r) => r.expenses || [])
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .filter((e: any) => e.status !== "rejected")
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .reduce((sum: number, e: any) => sum + Number(e.total_amount || 0), 0);
+
+  if (spentAmount > 0) {
+    fail("/fondos", "No se puede reversar el depósito porque el colaborador ya ha registrado gastos con este fondo.");
+  }
+
+  // Eliminar comprobante de storage si existe
+  if (fund.deposit_receipt_path) {
+    try {
+      await adminSb.storage.from("deposits").remove([fund.deposit_receipt_path]);
+    } catch (err) {
+      console.warn("No se pudo eliminar el comprobante de depósito previo:", err);
+    }
+  }
+
+  const revertAmount = Number(fund.approved_amount || fund.requested_amount || 0);
+
+  const { error: updErr } = await adminSb
+    .from("cash_advances")
+    .update({
+      status: "approved",
+      approval_stage: "general_manager",
+      approved_amount: revertAmount,
+      initial_amount: revertAmount,
+      current_balance: revertAmount,
+      deposit_receipt_path: null,
+      deposit_note: null,
+      deposited_by: null,
+      deposited_at: null,
+      date_assigned: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id);
+
+  if (updErr) {
+    fail("/fondos", `Error al reversar depósito: ${updErr.message}`);
+  }
+
+  await adminSb.from("approval_history").insert({
+    fund_id: id,
+    subject_user_id: fund.user_id,
+    approver_id: profile.id,
+    action: "approved",
+    comments: `Depósito reversado por ${profile.full_name}. El fondo vuelve a estar aprobado y derivado a Gerencia General para transferencia por ${formatClp(revertAmount)}.`,
+  });
+
+  revalidatePath("/fondos");
+  revalidatePath("/aprobaciones");
+  revalidatePath("/dashboard");
+  redirect("/fondos?success=deposito_reversado");
+}
+
 export type CloseFundResult = {
   success: boolean;
   error?: string;
