@@ -6,6 +6,7 @@ import { NewFundModal } from "./new-fund-modal";
 import { CloseFundModal } from "./close-fund-modal";
 import { DeleteFundButton } from "./delete-fund-button";
 import { ReverseDepositButton } from "./reverse-deposit-button";
+import { ReportModal } from "./report-modal";
 import { cancelFund } from "./actions";
 import { Wallet, AlertCircle, CheckCircle2, FileText, ArrowUpRight, Ban, HandCoins, Plus, Building2, User, Users, ClipboardCheck } from "lucide-react";
 import Link from "next/link";
@@ -58,6 +59,11 @@ export default async function FondosPage({
   }
 
   const sb = await createClient();
+  const adminSb = createAdminClient();
+  const { data: allProfiles } = await adminSb
+    .from("profiles")
+    .select("id, full_name, email, role")
+    .order("full_name", { ascending: true });
 
   // 1. Obtener empresas autorizadas para el usuario
   const companies = await getUserAuthorizedCompanies(sb, profile.id, profile.role);
@@ -207,15 +213,12 @@ export default async function FondosPage({
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <a
-            href="/api/fondos/informe-pdf"
-            download="Informe_Rendicion_Gastos_Juan_Pablo_Vasquez.pdf"
-            className="inline-flex items-center gap-1.5 rounded-xl border border-primary/30 bg-primary/10 px-3.5 py-2.5 text-xs font-bold text-primary shadow-sm transition hover:bg-primary/20 active:scale-95"
-            title="Descargar Informe Detallado de Rendición en PDF"
-          >
-            <FileText size={16} />
-            Informe PDF
-          </a>
+          <ReportModal
+            currentUserId={profile.id}
+            currentUserRole={profile.role}
+            currentView={currentView}
+            profiles={allProfiles || []}
+          />
           {!isGeneralManager && (
             <>
               <Link
