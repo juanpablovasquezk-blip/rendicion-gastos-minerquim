@@ -455,7 +455,7 @@ export async function updateExpenseAction(f: FormData): Promise<{ success: boole
     // Obtener gasto actual
     const { data: exp, error: expErr } = await adminSb
       .from("expenses")
-      .select("*, expense_reports(id, status, user_id)")
+      .select("*, expense_reports(id, status, user_id, report_type, fund_id)")
       .eq("id", expenseId)
       .single();
 
@@ -534,7 +534,140 @@ export async function updateExpenseAction(f: FormData): Promise<{ success: boole
       return { success: false, error: `Error al actualizar gasto: ${updErr.message}` };
     }
 
-    // Disparar recálculo de montos en expense_reports
+    // Gestionar cambio de modalidad (Reembolso <-> Rendición de Fondo)
+    const targetReportType = str(f, "report_type") as "reimbursement" | "fund_rendition" | null;
+    const targetFundId = str(f, "fund_id");
+    const currentReport = (exp as any).expense_reports;
+
+    if (targetReportType && currentReport && (targetReportType !== currentReport.report_type || (targetReportType === "fund_rendition" && targetFundId && targetFundId !== currentReport.fund_id))) {
+      const expenseUserId = exp.user_id;
+      let destinationReportId: string | null = null;
+
+      if (targetReportType === "fund_rendition") {
+        let assignedFundId = targetFundId;
+        if (!assignedFundId) {
+          const { data: userActiveFunds } = await adminSb
+            .from("cash_advances")
+            .select("id")
+            .eq("user_id", expenseUserId)
+            .eq("status", "active")
+            .order("created_at", { ascending: false })
+            .limit(1);
+          assignedFundId = userActiveFunds?.[0]?.id || null;
+        }
+
+        const { data: existingFundDraft } = await adminSb
+          .from("expense_reports")
+          .select("id, fund_id")
+          .eq("user_id", expenseUserId)
+          .eq("status", "draft")
+          .eq("report_type", "fund_rendition")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (existingFundDraft) {
+          destinationReportId = existingFundDraft.id;
+          if (assignedFundId && !existingFundDraft.fund_id) {
+            await adminSb
+              .from("expense_reports")
+              .update({ fund_id: assignedFundId })
+              .eq("id", destinationReportId);
+          }
+        } else {
+          const { data: newRep, error: newRepErr } = await adminSb
+            .from("expense_reports")
+            .insert({
+              user_id: expenseUserId,
+              title: "Rendición de Fondos en Curso",
+              report_type: "fund_rendition",
+              fund_id: assignedFundId,
+              status: "draft",
+            })
+            .select("id")
+            .single();
+
+          if (newRepErr || !newRep) {
+            return { success: false, error: `Error creando informe de rendición: ${newRepErr?.message}` };
+          }
+          destinationReportId = newRep.id;
+        }
+      } else if (targetReportType === "reimbursement") {
+        const { data: existingReimbDraft } = await adminSb
+          .from("expense_reports")
+          .select("id")
+          .eq("user_id", expenseUserId)
+          .eq("status", "draft")
+          .eq("report_type", "reimbursement")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (existingReimbDraft) {
+          destinationReportId = existingReimbDraft.id;
+        } else {
+          const title = `Reembolso de Gastos - ${new Date().toLocaleDateString("es-CL")}`;
+          const { data: newRep, error: newRepErr } = await adminSb
+            .from("expense_reports")
+            .insert({
+              user_id: expenseUserId,
+              title,
+              report_type: "reimbursement",
+              fund_id: null,
+              status: "draft",
+            })
+            .select("id")
+            .single();
+
+          if (newRepErr || !newRep) {
+            return { success: false, error: `Error creando informe de reembolso: ${newRepErr?.message}` };
+          }
+          destinationReportId = newRep.id;
+        }
+      }
+
+      if (destinationReportId && destinationReportId !== exp.report_id) {
+        const oldReportId = exp.report_id;
+
+        // Mover el gasto al nuevo informe
+        await adminSb
+          .from("expenses")
+          .update({ report_id: destinationReportId })
+          .eq("id", expenseId);
+
+        // Recalcular montos del informe anterior
+        const { data: oldReportExpenses } = await adminSb
+          .from("expenses")
+          .select("id, total_amount, status")
+          .eq("report_id", oldReportId);
+
+        if (!oldReportExpenses || oldReportExpenses.length === 0) {
+          // Si el informe anterior era borrador y quedó vacío, eliminarlo
+          await adminSb
+            .from("expense_reports")
+            .delete()
+            .eq("id", oldReportId)
+            .eq("status", "draft");
+        } else {
+          const oldTotal = oldReportExpenses
+            .filter((e) => e.status !== "rejected")
+            .reduce((sum, e) => sum + Number(e.total_amount || 0), 0);
+          const oldApproved = oldReportExpenses
+            .filter((e) => e.status === "approved")
+            .reduce((sum, e) => sum + Number(e.total_amount || 0), 0);
+
+          await adminSb
+            .from("expense_reports")
+            .update({ total_amount: oldTotal, approved_amount: oldApproved })
+            .eq("id", oldReportId);
+        }
+
+        // Actualizar referencia de exp.report_id al nuevo informe para el recálculo siguiente
+        exp.report_id = destinationReportId;
+      }
+    }
+
+    // Disparar recálculo de montos en expense_reports del informe actual
     const { data: allReportExpenses } = await adminSb
       .from("expenses")
       .select("total_amount, status")
@@ -565,5 +698,66 @@ export async function updateExpenseAction(f: FormData): Promise<{ success: boole
     console.error("Error en updateExpenseAction:", err);
     return { success: false, error: err?.message || "Error inesperado al actualizar el gasto." };
   }
+}
+
+/** Cambiar un informe borrador completo entre Reembolso y Rendición de Fondo */
+export async function switchReportTypeAction(f: FormData) {
+  const profile = await requireRole();
+  const reportId = str(f, "report_id");
+  const targetType = str(f, "target_type"); // 'fund_rendition' | 'reimbursement'
+  const targetFundId = str(f, "fund_id");
+
+  if (!reportId) fail("/gastos", "ID de informe no válido.");
+
+  const adminSb = createAdminClient();
+  const { data: report, error: repErr } = await adminSb
+    .from("expense_reports")
+    .select("*, expenses(id)")
+    .eq("id", reportId)
+    .single();
+
+  if (repErr || !report) fail("/gastos", "No se encontró el informe.");
+
+  const isOwner = report.user_id === profile.id;
+  const isManagement = ["admin", "general_manager", "manager"].includes(profile.role);
+  if (!isOwner && !isManagement) fail("/gastos", "No tienes permisos para modificar este informe.");
+  if (report.status !== "draft") fail("/gastos", "Solo se pueden cambiar informes en estado borrador.");
+
+  if (targetType === "fund_rendition") {
+    let fundId = targetFundId;
+    if (!fundId) {
+      const { data: activeFunds } = await adminSb
+        .from("cash_advances")
+        .select("id")
+        .eq("user_id", report.user_id)
+        .eq("status", "active")
+        .order("created_at", { ascending: false })
+        .limit(1);
+      fundId = activeFunds?.[0]?.id || null;
+    }
+
+    await adminSb
+      .from("expense_reports")
+      .update({
+        report_type: "fund_rendition",
+        title: "Rendición de Fondos en Curso",
+        fund_id: fundId,
+      })
+      .eq("id", reportId);
+  } else {
+    await adminSb
+      .from("expense_reports")
+      .update({
+        report_type: "reimbursement",
+        title: `Reembolso de Gastos - ${new Date().toLocaleDateString("es-CL")}`,
+        fund_id: null,
+      })
+      .eq("id", reportId);
+  }
+
+  revalidatePath("/gastos");
+  revalidatePath("/fondos");
+  revalidatePath("/dashboard");
+  redirect("/gastos?success=modalidad_actualizada");
 }
 

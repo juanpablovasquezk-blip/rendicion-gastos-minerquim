@@ -1,7 +1,7 @@
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { formatClp, formatDate, REPORT_STATUS_CONFIG } from "@/lib/format";
-import { deleteExpense, submitReport, reopenReportAction } from "./actions";
+import { deleteExpense, submitReport, reopenReportAction, switchReportTypeAction } from "./actions";
 import { EditExpenseModal } from "./edit-expense-modal";
 import { Plus, Receipt, AlertCircle, CheckCircle2, FileText, Trash2, Send, Clock, Building2, User, RotateCcw, Wallet } from "lucide-react";
 import Link from "next/link";
@@ -28,10 +28,11 @@ export default async function GastosPage({
       sb.from("departments").select("id, name, code").eq("is_active", true).order("name"),
       sb.from("categories").select("id, name").eq("is_active", true).order("name"),
       sb.from("receipt_types").select("id, name, code, requires_receipt").eq("is_active", true).order("name"),
-      sb.from("cash_advances").select("id, initial_amount, current_balance, purpose").eq("user_id", profile.id).eq("status", "active"),
+      sb.from("cash_advances").select("id, user_id, initial_amount, current_balance, purpose").eq("status", "active"),
     ]);
 
-  const totalFundPool = (userActiveFunds || []).reduce((sum, f) => sum + Number(f.initial_amount || 0), 0);
+  const userPersonalFunds = (userActiveFunds || []).filter((f) => f.user_id === profile.id);
+  const totalFundPool = userPersonalFunds.reduce((sum, f) => sum + Number(f.initial_amount || 0), 0);
 
   // Obtener informes con sus gastos detallados
   let reportsQuery = sb
@@ -179,6 +180,8 @@ export default async function GastosPage({
             const statusCfg = REPORT_STATUS_CONFIG[report.status] || { label: report.status, bg: "bg-gray-100", text: "text-gray-700" };
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const items = (report.expenses || []) as any[];
+            const reportUserFunds = (userActiveFunds || []).filter((f) => f.user_id === report.user_id);
+            const reportUserPool = reportUserFunds.reduce((sum, f) => sum + Number(f.initial_amount || 0), 0);
 
             return (
               <div key={report.id} className="rounded-2xl border border-border bg-surface p-5 shadow-sm space-y-4">
@@ -196,19 +199,50 @@ export default async function GastosPage({
                           <Wallet size={14} /> Bolsa de Fondos Activos:
                         </span>
                         <span className="text-muted-foreground">
-                          Total asignado: <strong className="text-foreground">{formatClp(totalFundPool)}</strong> ({userActiveFunds?.length || 0} {userActiveFunds?.length === 1 ? "fondo" : "fondos"})
+                          Total asignado: <strong className="text-foreground">{formatClp(reportUserPool)}</strong> ({reportUserFunds.length} {reportUserFunds.length === 1 ? "fondo" : "fondos"})
                         </span>
                         <span className="text-muted-foreground">
                           · Rendido en este informe: <strong className="text-foreground">{formatClp(report.total_amount)}</strong>
                         </span>
                         <span className="font-semibold text-emerald-600 dark:text-emerald-400">
-                          · Saldo restante en bolsa: <strong>{formatClp(Math.max(0, totalFundPool - Number(report.total_amount || 0)))}</strong>
+                          · Saldo restante en bolsa: <strong>{formatClp(Math.max(0, reportUserPool - Number(report.total_amount || 0)))}</strong>
                         </span>
+                        {report.status === "draft" && (
+                          <form action={switchReportTypeAction} className="inline ml-1">
+                            <input type="hidden" name="report_id" value={report.id} />
+                            <input type="hidden" name="target_type" value="reimbursement" />
+                            <button
+                              type="submit"
+                              className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-2 py-0.5 text-[11px] font-semibold text-muted-foreground hover:bg-muted hover:text-foreground transition cursor-pointer"
+                              title="Cambiar todo este informe a Reembolso Directo"
+                            >
+                              <Receipt size={12} />
+                              <span>Mover a Reembolso</span>
+                            </button>
+                          </form>
+                        )}
                       </div>
                     ) : (
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        Modalidad: Reembolso Directo (Dinero Personal)
-                      </p>
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                        <p className="text-muted-foreground">
+                          Modalidad: Reembolso Directo (Dinero Personal)
+                        </p>
+                        {report.status === "draft" && reportUserFunds.length > 0 && (
+                          <form action={switchReportTypeAction} className="inline">
+                            <input type="hidden" name="report_id" value={report.id} />
+                            <input type="hidden" name="target_type" value="fund_rendition" />
+                            <input type="hidden" name="fund_id" value={reportUserFunds[0]?.id || ""} />
+                            <button
+                              type="submit"
+                              className="inline-flex items-center gap-1 rounded-lg border border-primary/40 bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary hover:bg-primary/20 transition cursor-pointer"
+                              title="Asignar todo este informe a la Rendición de Fondos Activos"
+                            >
+                              <Wallet size={12} />
+                              <span>Mover a Rendición de Fondo</span>
+                            </button>
+                          </form>
+                        )}
+                      </div>
                     )}
                   </div>
 
@@ -305,6 +339,9 @@ export default async function GastosPage({
                           departments={departments || []}
                           categories={categories || []}
                           receiptTypes={receiptTypes || []}
+                          currentReportType={report.report_type}
+                          currentFundId={report.fund_id}
+                          activeFunds={reportUserFunds}
                         />
 
                         <form action={deleteExpense}>

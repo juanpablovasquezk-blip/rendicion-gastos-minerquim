@@ -2,7 +2,7 @@
 
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { Pencil, X, Loader2, Upload, FileText, CheckCircle2 } from "lucide-react";
+import { Pencil, X, Loader2, Upload, FileText, CheckCircle2, Wallet, Receipt } from "lucide-react";
 import { updateExpenseAction } from "./actions";
 import { formatClp } from "@/lib/format";
 import { compressImage } from "@/lib/image-compression";
@@ -30,12 +30,18 @@ export function EditExpenseModal({
   departments,
   categories,
   receiptTypes,
+  currentReportType = "reimbursement",
+  currentFundId = null,
+  activeFunds = [],
 }: {
   expense: ExpenseEditData;
   companies: Array<{ id: string; name: string }>;
   departments: Array<{ id: string; name: string; code?: string | null }>;
   categories: Array<{ id: string; name: string }>;
   receiptTypes: Array<{ id: string; name: string; code?: string; requires_receipt: boolean }>;
+  currentReportType?: "reimbursement" | "fund_rendition";
+  currentFundId?: string | null;
+  activeFunds?: Array<{ id: string; purpose: string; initial_amount: number; current_balance: number }>;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -43,6 +49,8 @@ export function EditExpenseModal({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Form states
+  const [reportType, setReportType] = useState<"reimbursement" | "fund_rendition">(currentReportType);
+  const [selectedFundId, setSelectedFundId] = useState<string>(currentFundId || activeFunds[0]?.id || "");
   const [companyId, setCompanyId] = useState(expense.company_id || (companies[0]?.id ?? ""));
   const [departmentId, setDepartmentId] = useState(expense.department_id || (departments[0]?.id ?? ""));
   const [categoryId, setCategoryId] = useState(expense.category_id || (categories[0]?.id ?? ""));
@@ -68,6 +76,8 @@ export function EditExpenseModal({
   const requiresReceipt = selectedReceiptType?.requires_receipt ?? true;
 
   const handleOpen = () => {
+    setReportType(currentReportType);
+    setSelectedFundId(currentFundId || activeFunds[0]?.id || "");
     setCompanyId(expense.company_id || (companies[0]?.id ?? ""));
     setDepartmentId(expense.department_id || (departments[0]?.id ?? ""));
     setCategoryId(expense.category_id || (categories[0]?.id ?? ""));
@@ -109,6 +119,10 @@ export function EditExpenseModal({
     try {
       const fd = new FormData();
       fd.set("expense_id", expense.id);
+      fd.set("report_type", reportType);
+      if (reportType === "fund_rendition" && selectedFundId) {
+        fd.set("fund_id", selectedFundId);
+      }
       fd.set("company_id", companyId);
       fd.set("department_id", departmentId);
       fd.set("category_id", categoryId);
@@ -180,6 +194,73 @@ export function EditExpenseModal({
               )}
 
               <form id="edit-expense-form" onSubmit={handleSubmit} className="space-y-4">
+                {/* Modalidad de Rendición / Imputación */}
+                <div className="rounded-xl border border-border bg-muted/40 p-3 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                      <Wallet size={15} className="text-primary" />
+                      Modalidad del Gasto (¿Cómo se financia?)
+                    </label>
+                    <span className="text-[11px] font-semibold text-primary">
+                      {reportType === "fund_rendition" ? "💳 Descontar de Fondo por Rendir" : "💵 Reembolso a mi favor"}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setReportType("fund_rendition")}
+                      className={`flex items-center justify-center gap-2 rounded-xl border p-2.5 text-xs font-bold transition cursor-pointer ${
+                        reportType === "fund_rendition"
+                          ? "border-primary bg-primary text-white shadow-xs"
+                          : "border-border bg-surface text-muted-foreground hover:bg-muted hover:text-foreground"
+                      }`}
+                    >
+                      <Wallet size={15} />
+                      <span>Rendición de Fondo</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setReportType("reimbursement")}
+                      className={`flex items-center justify-center gap-2 rounded-xl border p-2.5 text-xs font-bold transition cursor-pointer ${
+                        reportType === "reimbursement"
+                          ? "border-primary bg-primary text-white shadow-xs"
+                          : "border-border bg-surface text-muted-foreground hover:bg-muted hover:text-foreground"
+                      }`}
+                    >
+                      <Receipt size={15} />
+                      <span>Reembolso Directo</span>
+                    </button>
+                  </div>
+
+                  {reportType === "fund_rendition" && (
+                    <div className="pt-1">
+                      {activeFunds.length > 0 ? (
+                        <div className="space-y-1">
+                          <label className="text-[11px] font-semibold text-muted-foreground block">
+                            Asignar al fondo activo:
+                          </label>
+                          <select
+                            value={selectedFundId}
+                            onChange={(e) => setSelectedFundId(e.target.value)}
+                            className="w-full rounded-xl border border-border bg-background px-3 py-2 text-xs text-foreground focus:border-primary focus:outline-hidden"
+                          >
+                            {activeFunds.map((f) => (
+                              <option key={f.id} value={f.id}>
+                                {f.purpose || "Fondo Operativo"} ({formatClp(f.initial_amount)})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      ) : (
+                        <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 p-2 text-[11px] text-amber-700 dark:text-amber-300">
+                          ℹ️ Se asociará a la bolsa de fondos activos del colaborador.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
                 {/* Monto y Fecha */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
