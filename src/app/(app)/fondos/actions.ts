@@ -376,25 +376,32 @@ export async function closeFundAction(f: FormData): Promise<CloseFundResult> {
     // Calcular total entregado en la bolsa
     const totalDelivered = fundsToClose.reduce((sum, f) => sum + Number(f.initial_amount || 0), 0);
 
-    // 3. Obtener todos los gastos rendidos en informes de rendición de fondos del usuario
-    const { data: fundReports } = await adminSb
+    // 3. Obtener solo los gastos rendidos en informes vinculados a los fondos que se están cerrando (o borradores activos)
+    const targetFundIds = fundsToClose.map((f) => f.id);
+
+    const { data: allUserFundReports } = await adminSb
       .from("expense_reports")
       .select(`
-        id, status,
+        id, status, fund_id,
         expenses(id, total_amount, status)
       `)
       .eq("user_id", fund.user_id)
       .eq("report_type", "fund_rendition");
 
-    const totalSpent = (fundReports || [])
+    // Filtrar estrictamente los reportes pertenecientes a los fondos que se están cerrando o en borrador
+    const fundReports = (allUserFundReports || []).filter(
+      (r) => (r.fund_id && targetFundIds.includes(r.fund_id)) || r.status === "draft"
+    );
+
+    const totalSpent = fundReports
       .flatMap((r) => r.expenses || [])
       .filter((e) => e.status !== "rejected")
       .reduce((sum, e) => sum + Number(e.total_amount || 0), 0);
 
     const balance = totalDelivered - totalSpent;
 
-    // Auto-aprobar cualquier informe borrador asociado a fondos al momento del cierre
-    const draftReportIds = (fundReports || []).filter((r) => r.status === "draft").map((r) => r.id);
+    // Auto-aprobar cualquier informe borrador asociado a estos fondos al momento del cierre
+    const draftReportIds = fundReports.filter((r) => r.status === "draft").map((r) => r.id);
     if (draftReportIds.length > 0) {
       await adminSb
         .from("expenses")

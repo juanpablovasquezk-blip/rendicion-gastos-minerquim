@@ -93,13 +93,14 @@ export default async function FondosPage({
     if (fund.status === "active") {
       userActiveFundsDelivered[uId] = (userActiveFundsDelivered[uId] || 0) + Number(fund.initial_amount || 0);
       userActiveFundsCount[uId] = (userActiveFundsCount[uId] || 0) + 1;
+
+      const reports = (fund.expense_reports || []) as any[];
+      const spent = reports
+        .flatMap((r) => r.expenses || [])
+        .filter((e) => e.status !== "rejected")
+        .reduce((sum, e) => sum + Number(e.total_amount || 0), 0);
+      userFundExpensesSpent[uId] = (userFundExpensesSpent[uId] || 0) + spent;
     }
-    const reports = (fund.expense_reports || []) as any[];
-    const spent = reports
-      .flatMap((r) => r.expenses || [])
-      .filter((e) => e.status !== "rejected")
-      .reduce((sum, e) => sum + Number(e.total_amount || 0), 0);
-    userFundExpensesSpent[uId] = (userFundExpensesSpent[uId] || 0) + spent;
   }
 
   // 2. Calcular saldo real disponible deduciendo todos los gastos registrados (incluyendo en borrador)
