@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { FileText, Download, Calendar, Users, Filter, X, ChevronRight, CheckCircle2 } from "lucide-react";
+import { FileText, Download, Calendar, Users, Filter, X, ChevronRight, CheckCircle2, UserCheck } from "lucide-react";
 
 interface Profile {
   id: string;
@@ -37,14 +37,12 @@ export function ReportModal({
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
 
-  // Target user: default to 'all' if Gerencia viewing Empresa, otherwise currentUserId
+  // Target user: default to 'all' if in management, or allow choosing individual user
   const [targetUserId, setTargetUserId] = useState<string>(
-    isGeneralManager && currentView === "empresa" ? "all" : currentUserId
+    isManagement ? "all" : currentUserId
   );
 
-  const [scope, setScope] = useState<"gerencia" | "operaciones">(
-    isGeneralManager && currentView === "empresa" ? "gerencia" : "operaciones"
-  );
+  const [scope, setScope] = useState<"gerencia" | "operaciones">("operaciones");
 
   // Construct PDF download URL
   const buildDownloadUrl = () => {
@@ -61,9 +59,17 @@ export function ReportModal({
       if (endDate) params.set("endDate", endDate);
     }
 
-    params.set("scope", scope);
+    params.set("scope", targetUserId === "all" ? "gerencia" : scope);
 
     return `/api/fondos/informe-pdf?${params.toString()}`;
+  };
+
+  const getTargetLabel = () => {
+    if (targetUserId === "all") {
+      return "Todos los Funcionarios (Consolidado General)";
+    }
+    const found = profiles.find((p) => p.id === targetUserId);
+    return found?.full_name || found?.email || "Funcionario Seleccionado";
   };
 
   return (
@@ -84,23 +90,19 @@ export function ReportModal({
           <div className="relative w-full max-w-lg rounded-2xl border border-border bg-surface p-6 shadow-2xl">
             {/* Header */}
             <div className="flex items-start justify-between border-b border-border pb-4">
-              <div>
-                <div className="flex items-center gap-2">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                    <FileText size={20} />
-                  </div>
-                  <div>
-                    <h2 className="text-lg font-bold text-foreground">
-                      {scope === "gerencia"
-                        ? "Informe Ejecutivo de Gerencia"
-                        : "Informe de Rendición de Gastos"}
-                    </h2>
-                    <p className="text-xs text-muted-foreground">
-                      {scope === "gerencia"
-                        ? "Auditoría gerencial consolidada entre fechas o por meses"
-                        : "Detalle pormenorizado de fondos depositados y gastos rendidos"}
-                    </p>
-                  </div>
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                  <FileText size={22} />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-foreground">
+                    Informe de Fondos y Rendición
+                  </h2>
+                  <p className="text-xs text-muted-foreground">
+                    {targetUserId === "all"
+                      ? "Reporte consolidado de todos los funcionarios con desglose detallado"
+                      : `Reporte individual de rendición para ${getTargetLabel()}`}
+                  </p>
                 </div>
               </div>
               <button
@@ -113,34 +115,61 @@ export function ReportModal({
 
             {/* Contenido del Formulario */}
             <div className="mt-5 space-y-4 text-xs">
-              {/* Selector de Perfil / Colaborador (solo gerencia o admin) */}
+              {/* Selector de Funcionarios (Todos vs Alguno) */}
               {isManagement && (
                 <div>
-                  <label className="mb-1.5 flex items-center gap-1.5 font-bold text-foreground">
-                    <Users size={14} className="text-primary" />
-                    Destinatario / Alcance del Informe
+                  <label className="mb-1.5 flex items-center justify-between font-bold text-foreground">
+                    <span className="flex items-center gap-1.5">
+                      <Users size={14} className="text-primary" />
+                      Funcionarios a Incluir
+                    </span>
+                    <span className="text-[11px] font-normal text-muted-foreground">
+                      {targetUserId === "all" ? "Consolidado total" : "Filtrado individual"}
+                    </span>
                   </label>
+
+                  {/* Botones de selección rápida */}
+                  <div className="mb-2 grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setTargetUserId("all")}
+                      className={`rounded-xl border p-2 text-center font-bold transition ${
+                        targetUserId === "all"
+                          ? "border-primary bg-primary/10 text-primary shadow-xs"
+                          : "border-border text-muted-foreground hover:bg-muted"
+                      }`}
+                    >
+                      🏢 Todos los Funcionarios
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTargetUserId(currentUserId)}
+                      className={`rounded-xl border p-2 text-center font-bold transition ${
+                        targetUserId === currentUserId
+                          ? "border-primary bg-primary/10 text-primary shadow-xs"
+                          : "border-border text-muted-foreground hover:bg-muted"
+                      }`}
+                    >
+                      👤 Solo Mi Usuario
+                    </button>
+                  </div>
+
+                  {/* Dropdown detallado para elegir cualquiera de los funcionarios */}
                   <select
                     value={targetUserId}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setTargetUserId(val);
-                      if (val === "all") {
-                        setScope("gerencia");
-                      }
-                    }}
+                    onChange={(e) => setTargetUserId(e.target.value)}
                     className="w-full rounded-xl border border-border bg-background px-3 py-2 text-foreground focus:border-primary focus:outline-hidden"
                   >
-                    {isGeneralManager && (
-                      <option value="all">
-                        🏢 Toda la Empresa (Consolidado Gerencia General)
-                      </option>
-                    )}
-                    {profiles.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        👤 {p.full_name || p.email} ({p.role === "admin" ? "Operaciones/Admin" : p.role === "general_manager" ? "Gerencia General" : "Colaborador"})
-                      </option>
-                    ))}
+                    <option value="all">
+                      🏢 Todos los Funcionarios (Reporte Consolidado Completo)
+                    </option>
+                    <optgroup label="Seleccionar Funcionario Individual:">
+                      {profiles.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          👤 {p.full_name || p.email} ({p.role === "admin" ? "Gerente Operaciones" : p.role === "general_manager" ? "Gerente General" : "Funcionario"})
+                        </option>
+                      ))}
+                    </optgroup>
                   </select>
                 </div>
               )}
@@ -149,7 +178,7 @@ export function ReportModal({
               <div>
                 <label className="mb-1.5 flex items-center gap-1.5 font-bold text-foreground">
                   <Calendar size={14} className="text-primary" />
-                  Rango del Informe
+                  Período del Reporte
                 </label>
                 <div className="grid grid-cols-2 gap-2 rounded-xl border border-border bg-background p-1">
                   <button
@@ -224,68 +253,33 @@ export function ReportModal({
                 </div>
               )}
 
-              {/* Selector de Tipo de Formato (si aplica a gerencia) */}
-              {isManagement && targetUserId !== "all" && (
-                <div>
-                  <label className="mb-1.5 block font-bold text-muted-foreground">
-                    Formato de Presentación
-                  </label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setScope("operaciones")}
-                      className={`rounded-xl border p-2.5 text-left transition ${
-                        scope === "operaciones"
-                          ? "border-primary bg-primary/10 text-primary font-bold"
-                          : "border-border text-muted-foreground hover:bg-muted"
-                      }`}
-                    >
-                      <div className="font-bold">Formato Operaciones</div>
-                      <div className="text-[10px] opacity-80">
-                        Detalle de comprobantes y cuadre
-                      </div>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setScope("gerencia")}
-                      className={`rounded-xl border p-2.5 text-left transition ${
-                        scope === "gerencia"
-                          ? "border-primary bg-primary/10 text-primary font-bold"
-                          : "border-border text-muted-foreground hover:bg-muted"
-                      }`}
-                    >
-                      <div className="font-bold">Formato Gerencial</div>
-                      <div className="text-[10px] opacity-80">
-                        Control y supervisión de fondos
-                      </div>
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Resumen de configuración */}
+              {/* Resumen de configuración antes de generar */}
               <div className="rounded-xl border border-border/80 bg-muted/40 p-3">
                 <div className="flex items-center gap-2 text-foreground font-semibold">
                   <CheckCircle2 size={15} className="text-emerald-500" />
-                  <span>Resumen del informe a emitir:</span>
+                  <span>Configuración del informe a generar:</span>
                 </div>
                 <ul className="mt-1.5 space-y-1 text-muted-foreground text-[11px]">
                   <li>
                     • <strong>Alcance:</strong>{" "}
-                    {targetUserId === "all"
-                      ? "Consolidado de toda la empresa (Gerencia)"
-                      : profiles.find((p) => p.id === targetUserId)?.full_name || "Colaborador"}
+                    <span className="font-bold text-foreground">{getTargetLabel()}</span>
                   </li>
                   <li>
                     • <strong>Período:</strong>{" "}
-                    {filterMode === "month"
-                      ? selectedMonth === "all"
-                        ? "Histórico completo"
-                        : selectedMonth
-                      : `${startDate || "Inicio"} a ${endDate || "Hoy"}`}
+                    <span className="font-bold text-foreground">
+                      {filterMode === "month"
+                        ? selectedMonth === "all"
+                          ? "Todos los meses (Histórico completo)"
+                          : selectedMonth === "2026-11"
+                          ? "Noviembre 2026"
+                          : selectedMonth === "2026-10"
+                          ? "Octubre 2026"
+                          : selectedMonth
+                        : `${startDate || "Inicio"} al ${endDate || "Hoy"}`}
+                    </span>
                   </li>
                   <li>
-                    • <strong>Formato:</strong> PDF oficial con membrete y firmas de aprobación.
+                    • <strong>Contenido:</strong> Fondos entregados, comprobantes detallados (con proveedor, glosa y documento), y cuadro de liquidación financiero.
                   </li>
                 </ul>
               </div>

@@ -39,20 +39,20 @@ export async function GET(request: NextRequest) {
 
     const searchParams = request.nextUrl.searchParams;
     const requestedUserId = searchParams.get("userId") || "";
-    const month = searchParams.get("month") || ""; // e.g. "2026-10", "2026-11", or "all"
-    const startDate = searchParams.get("startDate") || ""; // e.g. "2026-10-01"
-    const endDate = searchParams.get("endDate") || ""; // e.g. "2026-10-31"
-    const scopeParam = searchParams.get("scope") || ""; // "gerencia" | "operaciones"
+    const month = searchParams.get("month") || "";
+    const startDate = searchParams.get("startDate") || "";
+    const endDate = searchParams.get("endDate") || "";
+    const scopeParam = searchParams.get("scope") || "";
 
-    const isManagement = profile.role === "general_manager" || profile.role === "admin" || profile.role === "manager";
-    const isGerencia = profile.role === "general_manager" || scopeParam === "gerencia";
+    const isManagement =
+      profile.role === "general_manager" || profile.role === "admin" || profile.role === "manager";
 
     // Determine target user(s)
     let targetUserId = profile.id;
     let isAllUsers = false;
 
     if (isManagement) {
-      if (requestedUserId === "all" || (isGerencia && (!requestedUserId || requestedUserId === "all"))) {
+      if (requestedUserId === "all" || (!requestedUserId && scopeParam === "gerencia")) {
         isAllUsers = true;
       } else if (requestedUserId) {
         targetUserId = requestedUserId;
@@ -149,7 +149,6 @@ export async function GET(request: NextRequest) {
       })
       .filter((r) => r.expenses.length > 0 || filterByDate(r.created_at));
 
-    // Extract all individual expenses
     const allFilteredExpenses = filteredReports.flatMap((r) =>
       (r.expenses || []).map((e: any) => ({
         ...e,
@@ -176,6 +175,14 @@ export async function GET(request: NextRequest) {
     const slate: [number, number, number] = [71, 85, 105];
     const greenText: [number, number, number] = [5, 102, 69];
 
+    // Determine issuer role and title
+    const isOpsManager = profile.role === "admin";
+    const issuerRoleTitle = isOpsManager
+      ? "Gerencia de Operaciones"
+      : profile.role === "general_manager"
+      ? "Gerencia General"
+      : "Administración";
+
     function drawHeader(title: string, subheader: string) {
       doc.setFillColor(...navy);
       doc.rect(margin, margin, contentWidth, 54, "F");
@@ -189,8 +196,8 @@ export async function GET(request: NextRequest) {
       doc.setFontSize(9.5);
       doc.setTextColor(226, 232, 240);
       doc.text(
-        isGerencia && isAllUsers
-          ? "GERENCIA GENERAL — CONTROL Y AUDITORÍA DE FONDOS"
+        isAllUsers
+          ? `${issuerRoleTitle.toUpperCase()} — INFORME CONSOLIDADO DE FONDOS Y RENDICIONES`
           : "SISTEMA DE GESTIÓN Y RENDICIÓN DE GASTOS",
         margin + 14,
         margin + 38
@@ -245,15 +252,15 @@ export async function GET(request: NextRequest) {
     }
 
     // =========================================================================
-    // CASE A: GERENCIA GENERAL CONSOLIDADO (TODOS LOS COLABORADORES)
+    // CASE A: CONSOLIDADO DE TODOS LOS FUNCIONARIOS (GERENCIA / OPERACIONES)
     // =========================================================================
-    if (isGerencia && isAllUsers) {
+    if (isAllUsers) {
       let y = drawHeader(
-        "INFORME CONSOLIDADO GERENCIAL DE FONDOS Y RENDICIONES",
-        "Control Gerencial de Entregas y Rendiciones"
+        "INFORME GENERAL CONSOLIDADO DE FONDOS Y RENDICIÓN DE GASTOS",
+        "Supervisión y Control de Todos los Funcionarios"
       );
 
-      // Gerencia Info Card
+      // Issuer Info Card
       doc.setFillColor(248, 250, 252);
       doc.setDrawColor(203, 213, 225);
       doc.roundedRect(margin, y, contentWidth, 48, 4, 4, "FD");
@@ -262,14 +269,14 @@ export async function GET(request: NextRequest) {
       doc.setFontSize(8.5);
       doc.setTextColor(...slate);
       doc.text("EMISOR DEL INFORME:", margin + 12, y + 16);
-      doc.text("CARGO / PERMISO:", margin + 12, y + 32);
+      doc.text("CARGO / DEPARTAMENTO:", margin + 12, y + 32);
 
       doc.setFont("helvetica", "bold");
       doc.setFontSize(9.5);
       doc.setTextColor(...darkBlue);
-      doc.text(profile.full_name || "Gabriel Acuña", margin + 140, y + 16);
+      doc.text(profile.full_name || "Juan Pablo Vásquez", margin + 140, y + 16);
       doc.setFont("helvetica", "normal");
-      doc.text("Gerencia General / Auditoría Financiera", margin + 140, y + 32);
+      doc.text(`${issuerRoleTitle} / Control de Fondos`, margin + 140, y + 32);
 
       doc.setFont("helvetica", "bold");
       doc.setFontSize(8.5);
@@ -282,31 +289,35 @@ export async function GET(request: NextRequest) {
       doc.setTextColor(...darkBlue);
       doc.text(periodLabel, margin + 445, y + 16);
       doc.setFont("helvetica", "normal");
-      doc.text("Consolidado Toda la Empresa", margin + 445, y + 32);
+      doc.text("Todos los Funcionarios", margin + 445, y + 32);
 
       y += 62;
 
-      // Group totals by collaborator
+      // Group totals and details by collaborator
       const userSummaryMap = new Map<
         string,
         {
+          id: string;
           name: string;
           email: string;
+          role: string;
           fundsDelivered: number;
           expensesSpent: number;
-          activeFundsCount: number;
-          closedFundsCount: number;
+          userAdvances: any[];
+          userExpenses: any[];
         }
       >();
 
       for (const p of allProfiles || []) {
         userSummaryMap.set(p.id, {
+          id: p.id,
           name: p.full_name || "Sin Nombre",
           email: p.email || "-",
+          role: p.role || "employee",
           fundsDelivered: 0,
           expensesSpent: 0,
-          activeFundsCount: 0,
-          closedFundsCount: 0,
+          userAdvances: [],
+          userExpenses: [],
         });
       }
 
@@ -314,8 +325,7 @@ export async function GET(request: NextRequest) {
         const u = userSummaryMap.get(adv.user_id);
         if (u) {
           u.fundsDelivered += Number(adv.initial_amount || 0);
-          if (adv.status === "active") u.activeFundsCount++;
-          else u.closedFundsCount++;
+          u.userAdvances.push(adv);
         }
       }
 
@@ -323,28 +333,23 @@ export async function GET(request: NextRequest) {
         const u = userSummaryMap.get(exp.user_id || exp.report_user_id);
         if (u) {
           u.expensesSpent += Number(exp.total_amount || 0);
+          u.userExpenses.push(exp);
         }
       }
 
-      const summaryRows = Array.from(userSummaryMap.entries())
-        .map(([uId, data]) => {
-          const diff = data.fundsDelivered - data.expensesSpent;
-          return {
-            uId,
-            ...data,
-            diff,
-          };
-        })
-        .filter((u) => u.fundsDelivered > 0 || u.expensesSpent > 0);
+      const activeUsers = Array.from(userSummaryMap.values()).filter(
+        (u) => u.fundsDelivered > 0 || u.expensesSpent > 0
+      );
 
-      const totalDeliveredAll = summaryRows.reduce((acc, r) => acc + r.fundsDelivered, 0);
-      const totalSpentAll = summaryRows.reduce((acc, r) => acc + r.expensesSpent, 0);
+      const totalDeliveredAll = activeUsers.reduce((acc, r) => acc + r.fundsDelivered, 0);
+      const totalSpentAll = activeUsers.reduce((acc, r) => acc + r.expensesSpent, 0);
       const totalDiffAll = totalDeliveredAll - totalSpentAll;
 
+      // Section 1: Executive Table
       doc.setFont("helvetica", "bold");
       doc.setFontSize(10.5);
       doc.setTextColor(...navy);
-      doc.text("1. RESUMEN EJECUTIVO POR COLABORADOR", margin, y);
+      doc.text("1. RESUMEN EJECUTIVO CONSOLIDADO POR FUNCIONARIO", margin, y);
       y += 8;
 
       autoTable(doc, {
@@ -352,35 +357,45 @@ export async function GET(request: NextRequest) {
         margin: { left: margin, right: margin },
         head: [
           [
-            "Colaborador",
+            "Funcionario / Cargo",
             "Fondos Entregados",
             "Gastos Rendidos",
             "Balance Período",
             "Estado / Conclusión",
           ],
         ],
-        body: summaryRows.map((r) => [
-          `${r.name}\n${r.email}`,
-          formatCLP(r.fundsDelivered),
-          formatCLP(r.expensesSpent),
-          r.diff >= 0
-            ? `${formatCLP(r.diff)} (A favor empresa)`
-            : `+${formatCLP(Math.abs(r.diff))} (A favor colab.)`,
-          r.diff < 0
-            ? "Excedente rendido / Reembolsado"
-            : r.diff === 0
-            ? "Fondos completamente cuadrados"
-            : "Saldo pendiente en poder del colab.",
-        ]),
+        body: activeUsers.map((r) => {
+          const diff = r.fundsDelivered - r.expensesSpent;
+          const roleLabel =
+            r.role === "admin"
+              ? "Gerente Operaciones"
+              : r.role === "general_manager"
+              ? "Gerente General"
+              : "Operaciones / Terreno";
+
+          return [
+            `${r.name}\n${roleLabel} (${r.email})`,
+            formatCLP(r.fundsDelivered),
+            formatCLP(r.expensesSpent),
+            diff >= 0
+              ? `${formatCLP(diff)} (A favor empresa)`
+              : `+${formatCLP(Math.abs(diff))} (A favor colab.)`,
+            diff < 0
+              ? "Excedente rendido / Reembolsado"
+              : diff === 0
+              ? "Fondos completamente cuadrados"
+              : "Saldo pendiente en poder del colab.",
+          ];
+        }),
         foot: [
           [
-            "TOTALES CONSOLIDADOS EMPRESA",
+            "TOTALES GENERALES EMPRESA",
             formatCLP(totalDeliveredAll),
             formatCLP(totalSpentAll),
             totalDiffAll >= 0
               ? `${formatCLP(totalDiffAll)} a favor empresa`
               : `+${formatCLP(Math.abs(totalDiffAll))} a favor colab.`,
-            "Auditado por Gerencia",
+            "Auditado y Conforme",
           ],
         ],
         theme: "grid",
@@ -407,13 +422,13 @@ export async function GET(request: NextRequest) {
       doc.setFont("helvetica", "bold");
       doc.setFontSize(9.5);
       doc.setTextColor(...greenText);
-      doc.text("BALANCE CONSOLIDADO DEL PERÍODO (GERENCIA GENERAL):", margin + 12, y + 16);
+      doc.text("BALANCE GENERAL CONSOLIDADO DE LA EMPRESA:", margin + 12, y + 16);
 
       doc.setFont("helvetica", "normal");
       doc.setFontSize(8.5);
       doc.setTextColor(...darkBlue);
       doc.text(
-        `Total Fondos Entregados: ${formatCLP(totalDeliveredAll)}   |   Total Rendido: ${formatCLP(
+        `Total Fondos Entregados: ${formatCLP(totalDeliveredAll)}   |   Total Gastos Rendidos: ${formatCLP(
           totalSpentAll
         )}`,
         margin + 12,
@@ -432,144 +447,196 @@ export async function GET(request: NextRequest) {
         { align: "right" }
       );
 
-      // Section 2: Detailed Funds Delivered
-      y += 60;
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(10.5);
-      doc.setTextColor(...navy);
-      doc.text("2. DETALLE DE FONDOS ENTREGADOS EN EL PERÍODO", margin, y);
-      y += 8;
-
-      autoTable(doc, {
-        startY: y,
-        margin: { left: margin, right: margin },
-        head: [["Fecha", "Receptor / Colaborador", "Motivo / Destino", "Estado", "Monto"]],
-        body: advances.map((adv) => {
-          const prof = profileMap.get(adv.user_id);
-          return [
-            formatDateCL(adv.date_assigned || adv.created_at),
-            prof?.full_name || adv.user_id,
-            adv.purpose || "-",
-            adv.status === "closed" ? "Cerrado / Rendido" : "Activo",
-            formatCLP(adv.initial_amount),
-          ];
-        }),
-        foot: [["TOTAL FONDOS DEL PERÍODO", "", "", "", formatCLP(totalDeliveredAll)]],
-        theme: "grid",
-        headStyles: { fillColor: slate, textColor: [255, 255, 255], fontStyle: "bold", fontSize: 8 },
-        bodyStyles: { fontSize: 7.5, textColor: darkBlue },
-        footStyles: { fillColor: [241, 245, 249], textColor: navy, fontStyle: "bold", fontSize: 8 },
-        columnStyles: {
-          0: { cellWidth: 65 },
-          1: { cellWidth: 120 },
-          2: { cellWidth: 190 },
-          3: { cellWidth: 85, halign: "center" },
-          4: { cellWidth: 80, halign: "right" },
-        },
-      });
-
-      // Section 3: Itemized Expenses across the company
-      doc.addPage();
-      y = drawHeader(
-        "3. DETALLE DE COMPROBANTES Y GASTOS RENDIDOS EN EL PERÍODO",
-        "Respaldos Operacionales y Tributarios"
-      );
-
-      autoTable(doc, {
-        startY: y,
-        margin: { left: margin, right: margin },
-        head: [["#", "Fecha", "Colaborador", "Proveedor", "Glosa / Detalle", "Doc", "IVA", "Total"]],
-        body: allFilteredExpenses.map((exp, idx) => {
-          const prof = profileMap.get(exp.user_id || exp.report_user_id);
-          return [
-            String(idx + 1),
-            formatDateCL(exp.date || exp.created_at),
-            prof?.full_name?.split(" ")[0] || "Colab",
-            exp.supplier_name || "S/P",
-            exp.justification || exp.description || "-",
-            exp.invoice_number ? `Folio ${exp.invoice_number}` : "S/F",
-            formatCLP(exp.tax_amount || 0),
-            formatCLP(exp.total_amount),
-          ];
-        }),
-        foot: [
-          [
-            "",
-            "",
-            "",
-            "",
-            "TOTAL GASTOS RENDIDOS",
-            "",
-            formatCLP(
-              allFilteredExpenses.reduce((sum, e) => sum + Number(e.tax_amount || 0), 0)
-            ),
-            formatCLP(totalSpentAll),
-          ],
-        ],
-        theme: "grid",
-        headStyles: { fillColor: navy, textColor: [255, 255, 255], fontStyle: "bold", fontSize: 7.5 },
-        bodyStyles: { fontSize: 7, textColor: darkBlue },
-        footStyles: { fillColor: [241, 245, 249], textColor: navy, fontStyle: "bold", fontSize: 7.5 },
-        columnStyles: {
-          0: { cellWidth: 16, halign: "center" },
-          1: { cellWidth: 50 },
-          2: { cellWidth: 65 },
-          3: { cellWidth: 100 },
-          4: { cellWidth: 160 },
-          5: { cellWidth: 55 },
-          6: { cellWidth: 40, halign: "right" },
-          7: { cellWidth: 54, halign: "right" },
-        },
-      });
-
-      // Signatures
-      // @ts-expect-error jspdf-autotable augmentation
-      y = doc.lastAutoTable.finalY + 25;
-      if (y > pageHeight - 110) {
+      // Section 2: Detailed Breakdown by Employee
+      for (const u of activeUsers) {
         doc.addPage();
-        y = margin + 40;
+        y = drawHeader(
+          `DESGLOSE DETALLADO — ${u.name.toUpperCase()}`,
+          "Fondos Asignados y Comprobantes Rendidos"
+        );
+
+        // Employee mini card
+        doc.setFillColor(248, 250, 252);
+        doc.setDrawColor(203, 213, 225);
+        doc.roundedRect(margin, y, contentWidth, 36, 3, 3, "FD");
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(9);
+        doc.setTextColor(...darkBlue);
+        doc.text(`Funcionario: ${u.name} (${u.email})`, margin + 10, y + 15);
+
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8);
+        doc.setTextColor(...slate);
+        const uDiff = u.fundsDelivered - u.expensesSpent;
+        doc.text(
+          `Fondos Recibidos: ${formatCLP(u.fundsDelivered)}   |   Gastos Rendidos: ${formatCLP(
+            u.expensesSpent
+          )}   |   Balance: ${
+            uDiff < 0
+              ? "+" + formatCLP(Math.abs(uDiff)) + " (A favor colaborador)"
+              : formatCLP(uDiff) + " (A favor empresa)"
+          }`,
+          margin + 10,
+          y + 28
+        );
+
+        y += 46;
+
+        // Subtable: Advances of this user
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(9.5);
+        doc.setTextColor(...navy);
+        doc.text("A. Fondos Entregados / Depositados:", margin, y);
+        y += 6;
+
+        if (u.userAdvances.length === 0) {
+          doc.setFont("helvetica", "italic");
+          doc.setFontSize(8);
+          doc.setTextColor(...slate);
+          doc.text("No registra depósitos directos en este período.", margin + 10, y + 8);
+          y += 18;
+        } else {
+          autoTable(doc, {
+            startY: y,
+            margin: { left: margin, right: margin },
+            head: [["Fecha", "Motivo / Destino Declarado", "Depositado Por", "Estado", "Monto"]],
+            body: u.userAdvances.map((adv) => [
+              formatDateCL(adv.date_assigned || adv.created_at),
+              adv.purpose || "-",
+              "Gabriel Acuña",
+              adv.status === "closed" ? "Cerrado / Rendido" : "Activo",
+              formatCLP(adv.initial_amount),
+            ]),
+            foot: [["SUBTOTAL FONDOS RECIBIDOS", "", "", "", formatCLP(u.fundsDelivered)]],
+            theme: "grid",
+            headStyles: { fillColor: slate, textColor: [255, 255, 255], fontStyle: "bold", fontSize: 7.5 },
+            bodyStyles: { fontSize: 7.5, textColor: darkBlue },
+            footStyles: { fillColor: [241, 245, 249], textColor: navy, fontStyle: "bold", fontSize: 8 },
+            columnStyles: {
+              0: { cellWidth: 65 },
+              1: { cellWidth: 265 },
+              2: { cellWidth: 75 },
+              3: { cellWidth: 65 },
+              4: { cellWidth: 70, halign: "right" },
+            },
+          });
+          // @ts-expect-error jspdf-autotable augmentation
+          y = doc.lastAutoTable.finalY + 12;
+        }
+
+        // Subtable: Expenses of this user
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(9.5);
+        doc.setTextColor(...navy);
+        doc.text(
+          `B. Detalle de Comprobantes y Gastos Rendidos (${u.userExpenses.length} ítems):`,
+          margin,
+          y
+        );
+        y += 6;
+
+        if (u.userExpenses.length === 0) {
+          doc.setFont("helvetica", "italic");
+          doc.setFontSize(8);
+          doc.setTextColor(...slate);
+          doc.text("No registra gastos rendidos en este período.", margin + 10, y + 8);
+          y += 20;
+        } else {
+          autoTable(doc, {
+            startY: y,
+            margin: { left: margin, right: margin },
+            head: [["#", "Fecha", "Proveedor", "Glosa / Detalle", "Doc", "IVA", "Total"]],
+            body: u.userExpenses.map((exp, idx) => [
+              String(idx + 1),
+              formatDateCL(exp.date || exp.created_at),
+              exp.supplier_name || "S/P",
+              exp.justification || exp.description || "-",
+              exp.invoice_number ? `Folio ${exp.invoice_number}` : "S/F",
+              formatCLP(exp.tax_amount || 0),
+              formatCLP(exp.total_amount),
+            ]),
+            foot: [
+              [
+                "",
+                "",
+                "",
+                "SUBTOTAL GASTOS RENDIDOS",
+                "",
+                formatCLP(u.userExpenses.reduce((s, e) => s + Number(e.tax_amount || 0), 0)),
+                formatCLP(u.expensesSpent),
+              ],
+            ],
+            theme: "grid",
+            headStyles: { fillColor: navy, textColor: [255, 255, 255], fontStyle: "bold", fontSize: 7.5 },
+            bodyStyles: { fontSize: 7, textColor: darkBlue },
+            footStyles: { fillColor: [241, 245, 249], textColor: navy, fontStyle: "bold", fontSize: 7.5 },
+            columnStyles: {
+              0: { cellWidth: 16, halign: "center" },
+              1: { cellWidth: 50 },
+              2: { cellWidth: 120 },
+              3: { cellWidth: 180 },
+              4: { cellWidth: 55 },
+              5: { cellWidth: 45, halign: "right" },
+              6: { cellWidth: 74, halign: "right" },
+            },
+          });
+          // @ts-expect-error jspdf-autotable augmentation
+          y = doc.lastAutoTable.finalY + 12;
+        }
       }
 
+      // Final Signatures on last page
+      doc.addPage();
+      y = drawHeader("ACTA DE REVISIÓN Y APROBACIÓN DE FONDOS", "Firmas Oficiales");
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(...slate);
+      doc.text(
+        "Se deja constancia de la revisión y auditoría de los fondos entregados y los comprobantes rendidos por todos los funcionarios de Minerquim SpA para el período indicado. Los saldos resultantes se encuentran debidamente conciliados y respaldados.",
+        margin,
+        y,
+        { maxWidth: contentWidth }
+      );
+
+      y += 80;
       const colW = (contentWidth - 40) / 2;
       doc.setDrawColor(148, 163, 184);
 
+      // Signature 1: Operations Manager (Juan Pablo Vásquez)
       doc.line(margin + 20, y + 40, margin + 20 + colW - 40, y + 40);
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(8.5);
+      doc.setFontSize(9);
       doc.setTextColor(...darkBlue);
-      doc.text("GABRIEL ACUÑA", margin + 20 + (colW - 40) / 2, y + 52, { align: "center" });
+      doc.text("JUAN PABLO VÁSQUEZ", margin + 20 + (colW - 40) / 2, y + 54, { align: "center" });
       doc.setFont("helvetica", "normal");
       doc.setFontSize(7.5);
       doc.setTextColor(...slate);
-      doc.text("Gerencia General — Minerquim SpA", margin + 20 + (colW - 40) / 2, y + 62, {
+      doc.text("Gerencia de Operaciones — Minerquim SpA", margin + 20 + (colW - 40) / 2, y + 64, {
         align: "center",
       });
 
+      // Signature 2: General Manager (Gabriel Acuña)
       doc.line(margin + colW + 40, y + 40, margin + colW + 40 + colW - 40, y + 40);
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(8.5);
+      doc.setFontSize(9);
       doc.setTextColor(...darkBlue);
-      doc.text("AUDITORÍA INTERNA / CONTROL", margin + colW + 40 + (colW - 40) / 2, y + 52, {
-        align: "center",
-      });
+      doc.text("GABRIEL ACUÑA", margin + colW + 40 + (colW - 40) / 2, y + 54, { align: "center" });
       doc.setFont("helvetica", "normal");
       doc.setFontSize(7.5);
       doc.setTextColor(...slate);
-      doc.text("Visto Bueno y Cierre de Fondos", margin + colW + 40 + (colW - 40) / 2, y + 62, {
+      doc.text("Gerencia General — Minerquim SpA", margin + colW + 40 + (colW - 40) / 2, y + 64, {
         align: "center",
       });
     }
 
     // =========================================================================
-    // CASE B: OPERACIONES (JUAN PABLO VÁSQUEZ) O COLABORADOR INDIVIDUAL
+    // CASE B: FUNCIONARIO INDIVIDUAL ESPECÍFICO (JUAN PABLO, EMILIO, GUSTAVO, ETC.)
     // =========================================================================
     else {
       let y = drawHeader(
-        `INFORME DE RENDICIÓN DE FONDOS Y GASTOS — ${
-          targetProfile.id === profile.id && profile.role === "admin"
-            ? "OPERACIONES"
-            : targetProfile.full_name?.toUpperCase() || "COLABORADOR"
-        }`,
+        `INFORME DE RENDICIÓN DE FONDOS Y GASTOS — ${targetProfile.full_name?.toUpperCase() || "FUNCIONARIO"}`,
         "Detalle de Fondos Depositados y Gastos Efectuados"
       );
 
@@ -581,15 +648,15 @@ export async function GET(request: NextRequest) {
       doc.setFont("helvetica", "bold");
       doc.setFontSize(8.5);
       doc.setTextColor(...slate);
-      doc.text("COLABORADOR:", margin + 12, y + 18);
+      doc.text("FUNCIONARIO:", margin + 12, y + 18);
       doc.text("CORREO ELECTRÓNICO:", margin + 12, y + 36);
 
       doc.setFont("helvetica", "bold");
       doc.setFontSize(10);
       doc.setTextColor(...darkBlue);
-      doc.text(targetProfile.full_name || "Juan Pablo Vásquez", margin + 115, y + 18);
+      doc.text(targetProfile.full_name || "Funcionario", margin + 115, y + 18);
       doc.setFont("helvetica", "normal");
-      doc.text(targetProfile.email || "juanpablo.vasquezk@gmail.com", margin + 145, y + 36);
+      doc.text(targetProfile.email || "-", margin + 145, y + 36);
 
       doc.setFont("helvetica", "bold");
       doc.setFontSize(8.5);
@@ -600,7 +667,15 @@ export async function GET(request: NextRequest) {
       doc.setFont("helvetica", "bold");
       doc.setFontSize(9.5);
       doc.setTextColor(...darkBlue);
-      doc.text("Operaciones y Logística", margin + 440, y + 18);
+      doc.text(
+        targetProfile.role === "admin"
+          ? "Gerencia de Operaciones"
+          : targetProfile.role === "general_manager"
+          ? "Gerencia General"
+          : "Operaciones y Terreno",
+        margin + 440,
+        y + 18
+      );
       doc.setTextColor(...greenText);
       doc.text(periodLabel, margin + 440, y + 36);
 
@@ -720,7 +795,6 @@ export async function GET(request: NextRequest) {
         y = doc.lastAutoTable.finalY + 14;
       }
 
-      // Check remaining page height for balance box & signatures
       if (y > pageHeight - 140) {
         doc.addPage();
         y = margin + 20;
@@ -778,7 +852,7 @@ export async function GET(request: NextRequest) {
       doc.setFontSize(8.5);
       doc.setTextColor(...darkBlue);
       doc.text(
-        targetProfile.full_name?.toUpperCase() || "JUAN PABLO VÁSQUEZ",
+        targetProfile.full_name?.toUpperCase() || "FUNCIONARIO",
         margin + 20 + (colW - 40) / 2,
         y + 48,
         { align: "center" }
@@ -794,20 +868,30 @@ export async function GET(request: NextRequest) {
       doc.setFont("helvetica", "bold");
       doc.setFontSize(8.5);
       doc.setTextColor(...darkBlue);
-      doc.text("GABRIEL ACUÑA", margin + colW + 40 + (colW - 40) / 2, y + 48, { align: "center" });
+      doc.text(
+        isOpsManager ? "JUAN PABLO VÁSQUEZ" : "GABRIEL ACUÑA",
+        margin + colW + 40 + (colW - 40) / 2,
+        y + 48,
+        { align: "center" }
+      );
       doc.setFont("helvetica", "normal");
       doc.setFontSize(7.5);
       doc.setTextColor(...slate);
-      doc.text("Aprobación Gerencia General", margin + colW + 40 + (colW - 40) / 2, y + 58, {
-        align: "center",
-      });
+      doc.text(
+        isOpsManager ? "Gerencia de Operaciones" : "Gerencia General",
+        margin + colW + 40 + (colW - 40) / 2,
+        y + 58,
+        { align: "center" }
+      );
     }
 
     drawFooter();
 
     const pdfBuffer = Buffer.from(doc.output("arraybuffer"));
     const filename = `Informe_${
-      isGerencia && isAllUsers ? "Gerencia_Minerquim" : "Rendicion_Gastos_" + (targetProfile.full_name || "Usuario").replace(/\s+/g, "_")
+      isAllUsers
+        ? "Consolidado_Todos_Funcionarios"
+        : "Rendicion_" + (targetProfile.full_name || "Usuario").replace(/\s+/g, "_")
     }_${periodLabel.replace(/\s+/g, "_")}.pdf`;
 
     return new NextResponse(pdfBuffer, {
