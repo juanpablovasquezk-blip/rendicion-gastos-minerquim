@@ -207,6 +207,15 @@ export default async function FondosPage({
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <a
+            href="/api/fondos/informe-pdf"
+            download="Informe_Rendicion_Gastos_Juan_Pablo_Vasquez.pdf"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-primary/30 bg-primary/10 px-3.5 py-2.5 text-xs font-bold text-primary shadow-sm transition hover:bg-primary/20 active:scale-95"
+            title="Descargar Informe Detallado de Rendición en PDF"
+          >
+            <FileText size={16} />
+            Informe PDF
+          </a>
           {!isGeneralManager && (
             <>
               <Link
