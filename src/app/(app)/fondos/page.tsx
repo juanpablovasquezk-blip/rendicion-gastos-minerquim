@@ -169,6 +169,10 @@ export default async function FondosPage({
     (acc, [uId, delivered]) => acc + Math.max(0, delivered - (userFundExpensesSpent[uId] || 0)),
     0
   );
+  const totalActiveFundsSurplus = Object.entries(userActiveFundsDelivered).reduce(
+    (acc, [uId, delivered]) => acc + Math.max(0, (userFundExpensesSpent[uId] || 0) - delivered),
+    0
+  );
   const totalPendingAmount = requestedFunds.reduce((acc, f) => acc + Number(f.requested_amount || 0), 0);
 
   // Helper para obtener monto real de un informe (incluso si total_amount del informe no fue recalculado aún)
@@ -185,6 +189,7 @@ export default async function FondosPage({
     (acc, r) => acc + getReportTotal(r),
     0
   );
+  const totalMoneyOwedToUsers = totalReimbursementOwed + totalActiveFundsSurplus;
 
   // Obtener URLs firmadas de comprobantes de depósito si los hay
   const depositUrls: Record<string, string | null> = {};
@@ -327,6 +332,15 @@ export default async function FondosPage({
           <p className="mt-1 text-xs text-muted-foreground">
             {activeFunds.length} {activeFunds.length === 1 ? "fondo activo en operación" : "fondos activos en operación"}
           </p>
+          {totalActiveFundsSurplus > 0 && (
+            <div className="mt-2 inline-flex items-center gap-1 rounded-lg bg-emerald-500/10 px-2 py-0.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+              <span>
+                {currentView === "empresa"
+                  ? `Excedente a favor de colaboradores: +${formatClp(totalActiveFundsSurplus)}`
+                  : `Excedente a tu favor: +${formatClp(totalActiveFundsSurplus)}`}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* 2. Reembolsos a Favor de los Trabajadores */}
@@ -340,10 +354,14 @@ export default async function FondosPage({
             </span>
           </div>
           <p className="mt-3 text-2xl font-bold tracking-tight text-blue-900 dark:text-blue-200">
-            {formatClp(totalReimbursementOwed)}
+            {formatClp(totalMoneyOwedToUsers)}
           </p>
           <p className="mt-1 text-xs text-blue-700 dark:text-blue-300 font-medium">
-            {currentView === "empresa"
+            {totalActiveFundsSurplus > 0
+              ? currentView === "empresa"
+                ? `Incluye +${formatClp(totalActiveFundsSurplus)} por excedentes en fondos rendidos`
+                : `Incluye +${formatClp(totalActiveFundsSurplus)} por excedente de fondo rendido`
+              : currentView === "empresa"
               ? `Dinero personal adeudado a colaboradores (${pendingReimbursements.length + approvedReimbursements.length} en trámite)`
               : `Dinero personal por devolverte (${pendingReimbursements.length + approvedReimbursements.length} en curso)`}
           </p>
@@ -494,17 +512,33 @@ export default async function FondosPage({
                       <div className="text-left sm:text-right">
                         {fund.status === "active" ? (
                           <>
-                            <span className="block text-xs font-semibold uppercase text-emerald-600 dark:text-emerald-400">
-                              {fund.is_pool ? "Saldo Restante en Bolsa" : "Saldo Restante por Rendir"}
-                            </span>
-                            <span className="text-lg font-bold text-foreground">
-                              {formatClp(Math.max(0, fund.current_balance))}
-                            </span>
-                            <span className="block text-[11px] text-muted-foreground">
-                              {fund.is_pool
-                                ? `de ${formatClp(fund.pool_total_delivered)} entregados en bolsa`
-                                : `de ${formatClp(fund.initial_amount)} entregados`}
-                            </span>
+                            {Number(fund.current_balance || 0) < 0 ? (
+                              <>
+                                <span className="block text-xs font-semibold uppercase text-emerald-600 dark:text-emerald-400">
+                                  {currentView === "empresa" ? "Excedente a Favor de Funcionario" : "Excedente a tu Favor"}
+                                </span>
+                                <span className="text-lg font-bold text-emerald-600 dark:text-emerald-400">
+                                  +{formatClp(Math.abs(Number(fund.current_balance || 0)))}
+                                </span>
+                                <span className="block text-[11px] text-muted-foreground">
+                                  Fondo agotado ($0 disp.) · Rendido {formatClp(spentAmount)} de {formatClp(fund.initial_amount)}
+                                </span>
+                              </>
+                            ) : (
+                              <>
+                                <span className="block text-xs font-semibold uppercase text-emerald-600 dark:text-emerald-400">
+                                  {fund.is_pool ? "Saldo Restante en Bolsa" : "Saldo Restante por Rendir"}
+                                </span>
+                                <span className="text-lg font-bold text-foreground">
+                                  {formatClp(fund.current_balance)}
+                                </span>
+                                <span className="block text-[11px] text-muted-foreground">
+                                  {fund.is_pool
+                                    ? `de ${formatClp(fund.pool_total_delivered)} entregados en bolsa`
+                                    : `de ${formatClp(fund.initial_amount)} entregados`}
+                                </span>
+                              </>
+                            )}
                           </>
                         ) : (
                           <>

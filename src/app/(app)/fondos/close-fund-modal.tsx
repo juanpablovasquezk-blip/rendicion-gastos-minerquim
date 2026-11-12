@@ -63,10 +63,18 @@ export function CloseFundModal({ fund, userPendingReimbursementsTotal = 0 }: Clo
     <>
       <button
         onClick={() => setIsOpen(true)}
-        className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-surface px-3 py-1.5 text-xs font-semibold text-muted-foreground transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700 active:scale-95 dark:hover:border-rose-800 dark:hover:bg-rose-950/40 dark:hover:text-rose-300"
+        className={
+          hasNegativeBalance
+            ? "inline-flex items-center gap-1.5 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-bold text-emerald-600 hover:bg-emerald-500/20 active:scale-95 transition dark:text-emerald-400"
+            : "inline-flex items-center gap-1.5 rounded-xl border border-border bg-surface px-3 py-1.5 text-xs font-semibold text-muted-foreground transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700 active:scale-95 dark:hover:border-rose-800 dark:hover:bg-rose-950/40 dark:hover:text-rose-300"
+        }
       >
         <ShieldCheck size={14} />
-        {isPool ? "Cerrar Bolsa de Fondos" : "Cerrar Fondo"}
+        {hasNegativeBalance
+          ? `Liquidar y Reembolsar (+${formatClp(deficitAmount)})`
+          : isPool
+          ? "Cerrar Bolsa de Fondos"
+          : "Cerrar Fondo"}
       </button>
 
       {isOpen && (
