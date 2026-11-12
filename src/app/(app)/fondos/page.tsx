@@ -69,7 +69,7 @@ export default async function FondosPage({
   const companies = await getUserAuthorizedCompanies(sb, profile.id, profile.role);
 
   // 2. Obtener fondos (Global empresa o Personal según vista)
-  let fundsQuery = sb
+  let fundsQuery = adminSb
     .from("cash_advances")
     .select(`
       *,
@@ -141,7 +141,7 @@ export default async function FondosPage({
   });
 
   // 3. Obtener reembolsos de dinero personal (Global empresa o Personal según vista)
-  let reimbursementsQuery = sb
+  let reimbursementsQuery = adminSb
     .from("expense_reports")
     .select(`
       *,
