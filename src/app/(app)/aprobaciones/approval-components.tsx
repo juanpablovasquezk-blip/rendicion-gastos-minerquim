@@ -195,6 +195,7 @@ export function DepositFundModal({
   appliedCredit = 0,
   reimbursementsBonus = 0,
   netDepositAmount,
+  linkedReimbursementIds = [],
 }: {
   fundId: string;
   solicitante: string;
@@ -204,6 +205,7 @@ export function DepositFundModal({
   appliedCredit?: number;
   reimbursementsBonus?: number;
   netDepositAmount?: number;
+  linkedReimbursementIds?: string[];
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -284,6 +286,9 @@ export function DepositFundModal({
       fd.set("deposit_amount", effectiveFundAmount.toString());
       fd.set("payment_method", paymentMethod);
       fd.set("deposit_note", depositNote);
+      if (linkedReimbursementIds && linkedReimbursementIds.length > 0) {
+        fd.set("linked_reimbursement_ids", linkedReimbursementIds.join(","));
+      }
       if (selectedFile) {
         fd.set("deposit_file", selectedFile);
       }

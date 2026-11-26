@@ -162,8 +162,43 @@ export async function depositFundByGM(f: FormData): Promise<ApprovalActionResult
     const customDepositRaw = str(f, "deposit_amount");
     const customDeposit = customDepositRaw ? Number(customDepositRaw.replace(/\D/g, "")) : 0;
     const amountToActivate = customDeposit > 0 ? customDeposit : (fund.approved_amount || fund.requested_amount || 0);
-    const bonusReimbursements = Number(fund.reimbursements_bonus || 0);
-    const linkedReports = Array.isArray(fund.linked_reimbursement_ids) ? fund.linked_reimbursement_ids : [];
+
+    // Identificar reembolsos vinculados pasados desde el modal o en el fondo
+    const linkedFromForm = str(f, "linked_reimbursement_ids");
+    let linkedReports = linkedFromForm
+      ? linkedFromForm.split(",").map((s) => s.trim()).filter(Boolean)
+      : Array.isArray(fund.linked_reimbursement_ids)
+      ? fund.linked_reimbursement_ids
+      : [];
+
+    let bonusReimbursements = Number(fund.reimbursements_bonus || 0);
+
+    // Si no venían IDs explícitos, buscar automáticamente si el usuario tenía reembolsos aprobados
+    if (linkedReports.length === 0) {
+      const { data: userApprovedReimbs } = await adminSb
+        .from("expense_reports")
+        .select("id, total_amount")
+        .eq("user_id", fund.user_id)
+        .eq("report_type", "reimbursement")
+        .eq("status", "approved");
+
+      if (userApprovedReimbs && userApprovedReimbs.length > 0) {
+        const sumReimbs = userApprovedReimbs.reduce((acc, r) => acc + Number(r.total_amount || 0), 0);
+        const reqAmount = Number(fund.requested_amount || fund.approved_amount || 0);
+        if (amountToActivate >= reqAmount + sumReimbs || bonusReimbursements > 0) {
+          linkedReports = userApprovedReimbs.map((r) => r.id);
+          bonusReimbursements = sumReimbs;
+        }
+      }
+    }
+
+    // El monto operativo que queda para rendir en el fondo:
+    // NUNCA debe incluir el dinero de los reembolsos personales ya devueltos al colaborador
+    const requestedFundAmount = Number(fund.requested_amount || fund.approved_amount || 0);
+    let operativeFundAmount = amountToActivate;
+    if (linkedReports.length > 0 && amountToActivate > requestedFundAmount) {
+      operativeFundAmount = requestedFundAmount;
+    }
 
     // 3. Activar el fondo en la base de datos
     const { error } = await adminSb
@@ -173,8 +208,9 @@ export async function depositFundByGM(f: FormData): Promise<ApprovalActionResult
         approval_stage: "done",
         deposit_receipt_path: fileName,
         deposit_note: depositNote || (paymentMethod === "cash" ? "Entrega de dinero en efectivo" : null),
-        initial_amount: amountToActivate,
-        approved_amount: amountToActivate,
+        initial_amount: operativeFundAmount,
+        approved_amount: operativeFundAmount,
+        current_balance: operativeFundAmount,
         deposited_by: profile.id,
         deposited_at: new Date().toISOString(),
         date_assigned: new Date().toISOString().split("T")[0],

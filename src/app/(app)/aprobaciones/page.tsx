@@ -321,16 +321,28 @@ export default async function AprobacionesPage({
 
                           <div className="flex items-center gap-2">
                             <RejectFundModal fundId={fund.id} purpose={fund.purpose} />
-                            <DepositFundModal
-                              fundId={fund.id}
-                              solicitante={fund.user_profile?.full_name || fund.user_profile?.email}
-                              amount={amountToTransfer}
-                              purpose={fund.purpose}
-                              companyName={fund.companies?.name || "Empresa"}
-                              appliedCredit={fund.applied_credit}
-                              reimbursementsBonus={fund.reimbursements_bonus}
-                              netDepositAmount={fund.net_deposit_amount}
-                            />
+                            {(() => {
+                              const userReimbInfo = groupedReimbursementsByUser[fund.user_id];
+                              const rBonus = Number(fund.reimbursements_bonus || 0) || (userReimbInfo?.total_amount || 0);
+                              const rIds = (Array.isArray(fund.linked_reimbursement_ids) && fund.linked_reimbursement_ids.length > 0)
+                                ? fund.linked_reimbursement_ids
+                                : (userReimbInfo?.reports || []).map((r) => r.id);
+                              const baseRequested = Number(fund.requested_amount || amountToTransfer);
+
+                              return (
+                                <DepositFundModal
+                                  fundId={fund.id}
+                                  solicitante={fund.user_profile?.full_name || fund.user_profile?.email}
+                                  amount={baseRequested}
+                                  purpose={fund.purpose}
+                                  companyName={fund.companies?.name || "Empresa"}
+                                  appliedCredit={fund.applied_credit}
+                                  reimbursementsBonus={rBonus}
+                                  netDepositAmount={fund.net_deposit_amount}
+                                  linkedReimbursementIds={rIds}
+                                />
+                              );
+                            })()}
                           </div>
                         </div>
                       </div>
